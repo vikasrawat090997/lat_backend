@@ -32,4 +32,4 @@ COPY --from=builder /app/dist ./dist
 EXPOSE 3000
 
 # Start the application
-CMD ["yarn", "start:prod"]
+CMD ["node", "dist/main.js"]
