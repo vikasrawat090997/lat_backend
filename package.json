@@ -6,8 +6,8 @@
   "private": true,
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=18 <=24"
-  },
+  "node": ">=20 <=24"
+},
   "scripts": {
     "preinstall": "node -e \"if (!process.env.npm_execpath || !process.env.npm_execpath.includes('yarn')) { console.error('Please use yarn instead of npm'); process.exit(1); }\"",
     "prebuild": "rimraf dist",
