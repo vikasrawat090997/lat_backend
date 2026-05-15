@@ -12,7 +12,7 @@ RUN yarn install --frozen-lockfile
 COPY . .
 
 # Build the application
-RUN yarn build
+RUN yarn build && ls -la && ls -la dist/ || echo "dist folder not found"
 
 # Runtime stage
 FROM node:20-alpine
@@ -32,4 +32,4 @@ COPY --from=builder /app/dist ./dist
 EXPOSE 3000
 
 # Start the application
-CMD ["yarn", "start:prod"]
+CMD ["node", "dist/main.js"]
