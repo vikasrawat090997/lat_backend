@@ -1,2 +1,5 @@
 [build]
 cmd = "yarn build"
+
+[output]
+include = ["dist"]
