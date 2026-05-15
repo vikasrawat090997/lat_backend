@@ -6,8 +6,8 @@
   "private": true,
   "license": "UNLICENSED",
   "engines": {
-  "node": ">=20 <=24"
-},
+    "node": ">=20 <=24"
+  },
   "scripts": {
     "preinstall": "node -e \"if (!process.env.npm_execpath || !process.env.npm_execpath.includes('yarn')) { console.error('Please use yarn instead of npm'); process.exit(1); }\"",
     "prebuild": "rimraf dist",
@@ -16,7 +16,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest --config jest.config.js",
     "test:watch": "jest --watch --config jest.config.js",
