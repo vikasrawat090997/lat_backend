@@ -8,6 +8,7 @@ import { toBool } from './utils/utils';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { RolesModule } from './modules/roles/roles.module';
 import { UsersModule } from './modules/users/users.module';
+import { MarketingExecutiveModule } from './modules/marketing-executive/marketing-executive.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { UsersModule } from './modules/users/users.module';
     }),
     RolesModule,
     UsersModule,
+    MarketingExecutiveModule,
   ],
   providers: [],
 })

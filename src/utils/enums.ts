@@ -21,3 +21,24 @@ export enum Section {
   FAQ = 150,
   Our_Partners = 151,
 }
+
+export enum LeadStatus {
+  QUERY_SENT = 'Query Sent',
+  UNDER_REVIEW = 'Under Review',
+  ADMIN_CONTACTED = 'Admin Contacted',
+  APPROVED = 'Approved',
+  REJECTED = 'Rejected',
+  ASSIGNED_TO_SITE_VISITOR = 'Assigned to Site Visitor',
+  SITE_VISITOR_CONTACTED = 'Site Visitor Contacted',
+  SITE_VISIT_SCHEDULED = 'Site Visit Scheduled',
+  SITE_VISIT_COMPLETED = 'Site Visit Completed',
+  ASSIGNED_TO_TECHNICIAN = 'Assigned to Technician',
+  CONTACTED = 'Contacted',
+  FOLLOW_UP_1_SCHEDULED = 'Follow-up 1 Scheduled',
+  FOLLOW_UP_2_SCHEDULED = 'Follow-up 2 Scheduled',
+  FOLLOW_UP_3_SCHEDULED = 'Follow-up 3 Scheduled',
+  INSTALLATION_STARTED = 'Installation Started',
+  INSTALLATION_COMPLETED = 'Installation Completed',
+  PAYMENT_COMPLETED = 'Payment Completed',
+  QUERY_CLOSED = 'Query Closed',
+}
