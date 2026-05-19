@@ -81,7 +81,7 @@ async function bootstrap() {
     .addSecurityRequirements('access-token')
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('caa-api-doc', app, document);
+  SwaggerModule.setup('solar-api-doc', app, document);
 
   const configService = app.get(ConfigService);
   Logger.log(`Server running on port ${configService.get('PORT')}`);

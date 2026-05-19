@@ -1,35 +1,82 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
-import { InjectRepository } from '@nestjs/typeorm';
 import { RoleMaster } from './entities/role.entity';
-import { Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Not, Repository } from 'typeorm';
+import { UserMaster } from '../users/entities/user.entity';
 
 @Injectable()
 export class RolesService {
   constructor(
     @InjectRepository(RoleMaster)
     private readonly roleMasterRepository: Repository<RoleMaster>,
+    @InjectRepository(UserMaster)
+    private readonly userMasterRepository: Repository<UserMaster>,
   ) {}
 
-  create(createRoleDto: CreateRoleDto) {
-    return 'This action adds a new role';
+  async findAll(userId: string) {
+    try {
+      // ✅ get user with role
+      const user = await this.userMasterRepository.findOne({
+        where: { id: userId },
+        relations: ['role'],
+      });
+      const qb = this.roleMasterRepository
+        .createQueryBuilder('r')
+        .innerJoin('r.userType', 'ut')
+        .select([
+          'r.id AS id',
+          'r.name AS roleName',
+          'ut.id AS userTypeId',
+          'ut.name AS userTypeName',
+          'r.createdAt AS createdAt',
+          'r.status AS status',
+        ])
+        .where('r.status IN (0,1)');
+
+      // ✅ condition
+      if (+user?.role?.id == 2) {
+        qb.andWhere('r.id = :roleId', { roleId: 3 });
+      }
+
+      const result = await qb.getRawMany();
+
+      return result;
+
+      return result;
+    } catch (err) {
+      if (err.status) throw err;
+      throw new HttpException(err.message || err, HttpStatus.BAD_REQUEST);
+    }
   }
 
-  async findAll() {
-    // return `This action returns all roles`;
-    return await this.roleMasterRepository.find();
-  }
+  async findOne(id: string) {
+    try {
+      const result = await this.roleMasterRepository
+        .createQueryBuilder('r')
+        .innerJoin('r.userType', 'ut')
+        .select([
+          'r.id AS id',
+          'r.name AS roleName',
+          'ut.id AS userTypeId',
+          'ut.name AS userTypeName',
+          'r.createdAt AS createdAt',
+          'r.status AS status',
+        ])
+        .where('r.id = :id', { id })
+        .getRawOne();
 
-  findOne(id: number) {
-    return `This action returns a #${id} role`;
-  }
-
-  update(id: number, updateRoleDto: UpdateRoleDto) {
-    return `This action updates a #${id} role`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} role`;
+      return result;
+    } catch (err) {
+      if (err.status) throw err;
+      throw new HttpException(err.message || err, HttpStatus.BAD_REQUEST);
+    }
   }
 }
