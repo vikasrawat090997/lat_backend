@@ -42,3 +42,9 @@ export enum LeadStatus {
   PAYMENT_COMPLETED = 'Payment Completed',
   QUERY_CLOSED = 'Query Closed',
 }
+
+export enum DocumentType {
+  DOCUMENT = 'Document',
+  ROOF = 'Roof',
+  INSTALLMENT = 'Installment',
+}
