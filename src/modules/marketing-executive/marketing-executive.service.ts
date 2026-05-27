@@ -156,30 +156,53 @@ export class MarketingExecutiveService {
 
   async getGroupedGallery(leadId: number): Promise<any> {
     try {
-      const rawFiles = await this.dataSource.query(
-        `
-        SELECT 
-            medm.id AS documentMappingId,
-            dtm.id AS documentTypeId,
-            dtm.typeName AS documentName,
-            dtm.description AS description,
-            medm.documentUrl AS fileUrl,
-            CASE 
-                WHEN dtm.type = 'Document' THEN 'documents'
-                WHEN dtm.type = 'Roof' THEN 'roofPhotos'
-                WHEN dtm.type = 'Installment' THEN 'installProof'
-                ELSE 'documents'
-            END AS tabCategory
-        FROM documenttypemaster dtm
-        -- Using INNER JOIN or keeping LEFT JOIN but filtering in JS 
-        LEFT JOIN marketingexecutivedocumentmapping medm 
-            ON medm.documentTypeId = dtm.id AND medm.leadId = ?
-        ORDER BY dtm.id ASC;
-        `,
-        [leadId],
-      );
+      const fileUrlPrefix = process.env.FILE_BASE_URL || '';
+      // const rawFiles = await this.dataSource.query(
+      //   `
+      //   SELECT
+      //       medm.id AS documentMappingId,
+      //       dtm.id AS documentTypeId,
+      //       dtm.typeName AS documentName,
+      //       dtm.description AS description,
+      //       medm.documentUrl AS fileUrl,
+      //       CASE
+      //           WHEN dtm.type = 'Document' THEN 'documents'
+      //           WHEN dtm.type = 'Roof' THEN 'roofPhotos'
+      //           WHEN dtm.type = 'Installment' THEN 'installProof'
+      //           ELSE 'documents'
+      //       END AS tabCategory
+      //   FROM documenttypemaster dtm
+      //   -- Using INNER JOIN or keeping LEFT JOIN but filtering in JS
+      //   LEFT JOIN marketingexecutivedocumentmapping medm
+      //       ON medm.documentTypeId = dtm.id AND medm.leadId = ?
+      //   ORDER BY dtm.id ASC;
+      //   `,
+      //   [leadId],
+      // );
 
       // Base layout initialized with explicit empty arrays
+      const rawFiles = await this.dataSource.query(
+        ` SELECT 
+      medm.id AS documentMappingId,
+      dtm.id AS documentTypeId,
+      dtm.typeName AS documentName,
+      dtm.description AS description,
+      -- Safely concatenate the environment variable parameter if a file URL exists
+      IF(medm.documentUrl IS NOT NULL, CONCAT(?, medm.documentUrl), NULL) AS fileUrl,
+      CASE 
+          WHEN dtm.type = 'Document' THEN 'documents'
+          WHEN dtm.type = 'Roof' THEN 'roofPhotos'
+          WHEN dtm.type = 'Installment' THEN 'installProof'
+          ELSE 'documents'
+      END AS tabCategory
+  FROM documenttypemaster dtm
+  LEFT JOIN marketingexecutivedocumentmapping medm 
+      ON medm.documentTypeId = dtm.id AND medm.leadId = ?
+  ORDER BY dtm.id ASC;
+  `,
+        [fileUrlPrefix, leadId], // Pass fileUrlPrefix as the 1st parameter (?) and leadId as the 2nd (?)
+      );
+
       const gallery = {
         totalFilesCount: 0,
         counts: {
