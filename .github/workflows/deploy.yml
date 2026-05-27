@@ -1,15 +1,35 @@
-script: |
-  mkdir -p ~/.ssh
-  ssh-keyscan github.com >> ~/.ssh/known_hosts
+name: Deploy NestJS App
 
-  cd /root/solar_backend
+on:
+  push:
+    branches:
+      - main
 
-  git reset --hard
-  git pull origin main
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-  yarn install
-  yarn build
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@master
 
-  pm2 restart solar-backend || pm2 start dist/src/main.js --name solar-backend
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
 
-  pm2 save
+          script: |
+            cd /root/solar_backend
+
+            # ensure repo is clean
+            git reset --hard
+            git pull origin main
+
+            # install & build
+            yarn install
+            yarn build
+
+            # restart pm2 safely
+            pm2 restart solar-backend || pm2 start dist/src/main.js --name solar-backend
+
+            pm2 save
