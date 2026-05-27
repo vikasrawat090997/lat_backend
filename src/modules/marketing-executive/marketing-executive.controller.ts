@@ -129,9 +129,4 @@ export class MarketingExecutiveController {
   async getLeadGallery(@Param('leadId', ParseIntPipe) leadId: number) {
     return await this.marketingExecutiveService.getGroupedGallery(leadId);
   }
-
-  @Get('test')
-  async test() {
-    return 'Successfully ci-cd pipe 10';
-  }
 }
