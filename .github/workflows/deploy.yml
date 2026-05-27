@@ -21,10 +21,13 @@ jobs:
           script: |
             cd /root/solar_backend
 
+            git reset --hard
             git pull origin main
 
-            yarn install 
+            yarn install
 
-            yarn run build 
+            yarn run build
 
             pm2 restart solar-backend
+
+            pm2 save
