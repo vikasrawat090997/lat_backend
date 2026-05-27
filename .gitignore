@@ -54,8 +54,6 @@ node_modules
 dist
 logs
 .env
-.vscode
-.npmrc
 
 
 package-lock.json
