@@ -156,6 +156,7 @@ export class MarketingExecutiveService {
 
   async getGroupedGallery(leadId: number): Promise<any> {
     try {
+      // Image Base URL
       const fileUrlPrefix = process.env.FILE_BASE_URL || '';
       // const rawFiles = await this.dataSource.query(
       //   `
