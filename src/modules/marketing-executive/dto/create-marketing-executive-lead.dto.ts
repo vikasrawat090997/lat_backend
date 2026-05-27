@@ -17,23 +17,48 @@ export class CreateMarketingExecutiveLeadDto {
   @IsNotEmpty()
   address: string;
 
-  @ApiProperty({ type: 'string', format: 'binary', description: 'Aadhar Front', required: false })
+  @ApiProperty({
+    type: 'string',
+    format: 'binary',
+    description: 'Aadhar Front',
+    required: false,
+  })
   @IsOptional()
-  aadharCardPhoto?: any;
+  aadharCardFront?: any;
 
-  @ApiProperty({ type: 'string', format: 'binary', description: 'Latest Electricity Bill', required: false })
+  @ApiProperty({
+    type: 'string',
+    format: 'binary',
+    description: 'Latest Electricity Bill',
+    required: false,
+  })
   @IsOptional()
   electricityBill?: any;
 
-  @ApiProperty({ type: 'string', format: 'binary', description: 'Customer Photograph', required: false })
+  @ApiProperty({
+    type: 'string',
+    format: 'binary',
+    description: 'Customer Photograph',
+    required: false,
+  })
   @IsOptional()
   customerPhotograph?: any;
 
-  @ApiProperty({ type: 'string', format: 'binary', description: 'Aadhar Back', required: false })
+  @ApiProperty({
+    type: 'string',
+    format: 'binary',
+    description: 'Aadhar Back',
+    required: false,
+  })
   @IsOptional()
   aadharCardBack?: any;
 
-  @ApiProperty({ type: 'string', format: 'binary', description: 'Cancel Cheque', required: false })
+  @ApiProperty({
+    type: 'string',
+    format: 'binary',
+    description: 'Cancel Cheque',
+    required: false,
+  })
   @IsOptional()
   cancelCheque?: any;
 }
