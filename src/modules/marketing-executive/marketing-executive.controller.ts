@@ -132,6 +132,6 @@ export class MarketingExecutiveController {
 
   @Get('test')
   async test() {
-    return 'Successfully ci-cd';
+    return 'Successfully ci-cd pipe';
   }
 }
