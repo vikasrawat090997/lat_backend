@@ -132,6 +132,6 @@ export class MarketingExecutiveController {
 
   @Get('test')
   async test(@Param() ){
-    return '1'
+    return '2'
   }
 }
