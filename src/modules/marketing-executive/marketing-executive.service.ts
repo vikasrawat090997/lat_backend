@@ -247,4 +247,58 @@ export class MarketingExecutiveService {
       );
     }
   }
+
+  async getUserDashboardMetrics(userId: number) {
+    try {
+      // We use a clean QueryBuilder to run conditional aggregation in one database trip
+      const rawMetrics = await this.leadRepository
+        .createQueryBuilder('lead')
+        .select('COUNT(lead.id)', 'totalLeads')
+        .addSelect(
+          `SUM(CASE WHEN lead.status = :approved THEN 1 ELSE 0 END)`,
+          'approvedCount',
+        )
+        .addSelect(
+          `SUM(CASE WHEN lead.status = :rejected THEN 1 ELSE 0 END)`,
+          'rejectedCount',
+        )
+        .addSelect(
+          `SUM(CASE WHEN lead.status = :underReview THEN 1 ELSE 0 END)`,
+          'pendingReviewCount',
+        )
+        .addSelect(
+          `SUM(CASE WHEN lead.status = :installed THEN 1 ELSE 0 END)`,
+          'installationsCount',
+        )
+        .addSelect(
+          `SUM(CASE WHEN lead.status = :paymentDone THEN 1 ELSE 0 END)`,
+          'commissionEligibleCount',
+        )
+        .where('lead.userId = :userId', { userId })
+        .setParameters({
+          approved: LeadStatus.APPROVED,
+          rejected: LeadStatus.REJECTED,
+          underReview: LeadStatus.UNDER_REVIEW,
+          installed: LeadStatus.INSTALLATION_COMPLETED,
+          paymentDone: LeadStatus.PAYMENT_COMPLETED,
+        })
+        .getRawOne();
+
+      // MySQL returns COUNT and SUM values as raw strings, so parse them cleanly into integers
+      return {
+        totalLeads: parseInt(rawMetrics.totalLeads || '0', 10),
+        approved: parseInt(rawMetrics.approvedCount || '0', 10),
+        rejected: parseInt(rawMetrics.rejectedCount || '0', 10),
+        pendingReview: parseInt(rawMetrics.pendingReviewCount || '0', 10),
+        installations: parseInt(rawMetrics.installationsCount || '0', 10),
+        commissionEligible: parseInt(
+          rawMetrics.commissionEligibleCount || '0',
+          10,
+        ),
+      };
+    } catch (err: any) {
+      if (err.status) throw err;
+      throw new HttpException(err.message || err, HttpStatus.BAD_REQUEST);
+    }
+  }
 }

@@ -130,8 +130,10 @@ export class MarketingExecutiveController {
     return await this.marketingExecutiveService.getGroupedGallery(leadId);
   }
 
-  @Get('test')
-  async test() {
-    return '4';
+  @Get('dashboard-metrics')
+  async getUserDashboardMetrics(@Req() req: any) {
+    return await this.marketingExecutiveService.getUserDashboardMetrics(
+      req.user.userId,
+    );
   }
 }

@@ -9,6 +9,7 @@ import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { RolesModule } from './modules/roles/roles.module';
 import { UsersModule } from './modules/users/users.module';
 import { MarketingExecutiveModule } from './modules/marketing-executive/marketing-executive.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { MarketingExecutiveModule } from './modules/marketing-executive/marketin
     RolesModule,
     UsersModule,
     MarketingExecutiveModule,
+    AdminModule,
   ],
   providers: [],
 })

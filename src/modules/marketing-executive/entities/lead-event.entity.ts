@@ -5,7 +5,9 @@ import { UserMaster } from '../../users/entities/user.entity';
 
 @Entity('leadevent')
 export class LeadEvent extends Base {
-  @ManyToOne(() => MarketingExecutiveLead, (lead) => lead.events, { onDelete: 'CASCADE' })
+  @ManyToOne(() => MarketingExecutiveLead, (lead) => lead.events, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'leadId' })
   lead: MarketingExecutiveLead;
 
@@ -24,4 +26,7 @@ export class LeadEvent extends Base {
 
   @Column({ type: 'text', nullable: true })
   description: string;
+
+  @Column({ type: 'varchar', length: 256 })
+  fileUrl: string;
 }
