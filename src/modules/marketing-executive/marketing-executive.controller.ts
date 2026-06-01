@@ -10,6 +10,7 @@ import {
   Req,
   Param,
   ParseIntPipe,
+  Query,
 } from '@nestjs/common';
 import { ApiConsumes, ApiBody, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
@@ -20,6 +21,7 @@ import { MarketingExecutiveService } from './marketing-executive.service';
 import { CreateMarketingExecutiveLeadDto } from './dto/create-marketing-executive-lead.dto';
 import { JwtAuthGuard } from '../auth/guards/auth-roles.guard';
 import { Request } from 'express';
+import { GetLeadsQueryDto } from '../admin/dto/all-leads.dto';
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
 
@@ -114,9 +116,10 @@ export class MarketingExecutiveController {
   }
 
   @Get('leads-matrix')
-  async getLeadsMatrix(@Req() req: any) {
+  async getLeadsMatrix(@Req() req: any, @Query() query: GetLeadsQueryDto) {
     return await this.marketingExecutiveService.getLeadsWithMetricsAndDocs(
       req.user.userId,
+      query,
     );
   }
 

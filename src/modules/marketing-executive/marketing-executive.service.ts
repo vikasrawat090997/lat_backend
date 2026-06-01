@@ -10,6 +10,7 @@ import { MarketingExecutiveLead } from './entities/marketing-executive-lead.enti
 import { CreateMarketingExecutiveLeadDto } from './dto/create-marketing-executive-lead.dto';
 import { LeadStatus } from '../../utils/enums';
 import { leadsMatrix, leadsTimeLine } from 'src/utils/rawQueries';
+import { GetLeadsQueryDto } from '../admin/dto/all-leads.dto';
 
 @Injectable()
 export class MarketingExecutiveService {
@@ -98,12 +99,39 @@ export class MarketingExecutiveService {
     }
   }
 
-  async getLeadsWithMetricsAndDocs(userId: number): Promise<any[]> {
+  async getLeadsWithMetricsAndDocs(
+    userId: number,
+    query: GetLeadsQueryDto,
+  ): Promise<any[]> {
     try {
-      const rawResults = await this.dataSource.query(leadsMatrix(userId));
+      const { search, status } = query;
+
+      let leadsMatrixQuery = leadsMatrix(userId);
+
+      // Filter: Status Dropdown
+      if (status) {
+        leadsMatrixQuery += ` AND mel.status = '${status}'`;
+      }
+
+      // Filter: Global Search
+      if (search?.trim()) {
+        const searchKeyword = search.trim();
+
+        leadsMatrixQuery += `
+        AND (
+          mel.fullName LIKE '%${searchKeyword}%'
+          OR mel.phoneNumber LIKE '%${searchKeyword}%'
+          OR CAST(mel.id AS CHAR) LIKE '%${searchKeyword}%'
+        )
+      `;
+      }
+
+      const rawResults = await this.dataSource.query(leadsMatrixQuery);
+
       return this.formatLeadData(rawResults);
     } catch (err: any) {
       if (err.status) throw err;
+
       throw new HttpException(err.message || err, HttpStatus.BAD_REQUEST);
     }
   }
@@ -126,6 +154,10 @@ export class MarketingExecutiveService {
           totalPendingAmount: dealAmount - receivedAmount,
           paymentsCount: Number(row.paymentsCount || 0),
           collectionPercentage: Number(row.collectionPercentage || 0),
+          leadStatus: row.leadStatus,
+          siteVisitorName: row.siteVisitorName,
+          installerName: row.installerName,
+          createdAt: row.createdAt,
           documents: [], // The nested array where your unique document rows will collect
         };
       }
@@ -141,7 +173,7 @@ export class MarketingExecutiveService {
     }, {});
 
     // Convert the map back into a clean array of grouped objects
-    return Object.values(grouped);
+    return Object.values(grouped).sort((a: any, b: any) => b.leadId - a.leadId);
   }
 
   async getLeadTimeline(leadId: number): Promise<any[]> {

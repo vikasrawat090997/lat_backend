@@ -15,7 +15,7 @@ LEFT JOIN rolepagemapping rpm
     AND rpm.roleId = r.id
 ORDER BY p.id, s.id, r.id `;
 
-export const leadsMatrix = (userId: number) => `  SELECT 
+export const leadsMatrix = (userId: number) => ` SELECT 
             mel.id AS leadId,
             mel.fullName AS leadName,
             COALESCE(mel.amount, 0) AS totalDealAmount,
@@ -31,7 +31,9 @@ export const leadsMatrix = (userId: number) => `  SELECT
             CASE 
                 WHEN medm.id IS NOT NULL THEN 'Uploaded'
                 ELSE 'Not Uploaded'
-            END AS uploadStatus
+            END AS uploadStatus,
+            mel.status AS leadStatus,um.fullName AS siteVisitorName,um1.fullName AS installerName,
+            mel.createdAt
         FROM marketingexecutiveleads mel
         LEFT JOIN (
             SELECT 
@@ -45,8 +47,9 @@ export const leadsMatrix = (userId: number) => `  SELECT
         LEFT JOIN marketingexecutivedocumentmapping medm 
             ON medm.leadId = mel.id 
             AND medm.documentTypeId = dtm.id
-        WHERE mel.userId = ${userId}
-        ORDER BY mel.id DESC, dtm.id ASC;`;
+         LEFT JOIN usermaster um ON um.id = mel.siteVisitorUserId
+         LEFT JOIN usermaster um1 ON um1.id = mel.installerUserId
+        WHERE mel.userId = ${userId}`;
 
 export const leadsTimeLine = (leadId: number) => `SELECT 
     le.id AS eventId,
