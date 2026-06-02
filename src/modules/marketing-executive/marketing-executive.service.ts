@@ -148,7 +148,7 @@ export class MarketingExecutiveService {
         acc[id] = {
           leadId: row.leadId,
           leadName: row.leadName,
-          address: row.address,
+          address: row.address, //House address
           totalDealAmount: dealAmount,
           totalReceived: receivedAmount,
           // Fixes the SQL subtraction anomaly dynamically:
