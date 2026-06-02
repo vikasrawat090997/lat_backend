@@ -18,6 +18,7 @@ ORDER BY p.id, s.id, r.id `;
 export const leadsMatrix = (userId: number) => ` SELECT 
             mel.id AS leadId,
             mel.fullName AS leadName,
+            mel.address as address,
             COALESCE(mel.amount, 0) AS totalDealAmount,
             COALESCE(p_summary.totalReceived, 0) AS totalReceived,
             COALESCE(mel.pendingamount, 0) AS totalPendingAmount,
