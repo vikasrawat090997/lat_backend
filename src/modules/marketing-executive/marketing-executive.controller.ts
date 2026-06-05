@@ -39,7 +39,7 @@ export class MarketingExecutiveController {
       [
         { name: 'aadharCardFront', maxCount: 1 },
         { name: 'electricityBill', maxCount: 1 },
-        { name: 'customerPhotograph', maxCount: 1 },
+        { name: 'customer', maxCount: 1 },
         { name: 'aadharCardBack', maxCount: 1 },
         { name: 'cancelCheque', maxCount: 1 },
       ],
@@ -78,7 +78,7 @@ export class MarketingExecutiveController {
     files: {
       aadharCardFront?: Express.Multer.File[];
       electricityBill?: Express.Multer.File[];
-      customerPhotograph?: Express.Multer.File[];
+      customer?: Express.Multer.File[];
       aadharCardBack?: Express.Multer.File[];
       cancelCheque?: Express.Multer.File[];
     },
@@ -99,7 +99,7 @@ export class MarketingExecutiveController {
         const allFiles = [
           ...(files.aadharCardFront || []),
           ...(files.electricityBill || []),
-          ...(files.customerPhotograph || []),
+          ...(files.customer || []),
           ...(files.aadharCardBack || []),
           ...(files.cancelCheque || []),
         ];

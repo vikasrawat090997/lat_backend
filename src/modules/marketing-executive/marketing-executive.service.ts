@@ -25,7 +25,7 @@ export class MarketingExecutiveService {
     files: {
       aadharCardFront?: Express.Multer.File[];
       electricityBill?: Express.Multer.File[];
-      customerPhotograph?: Express.Multer.File[];
+      customer?: Express.Multer.File[];
       aadharCardBack?: Express.Multer.File[];
       cancelCheque?: Express.Multer.File[];
     },
@@ -52,11 +52,11 @@ export class MarketingExecutiveService {
         });
       }
 
-      if (files?.customerPhotograph?.length) {
+      if (files?.customer?.length) {
         documentsToSave.push({
           documentTypeId: '3', // Customer Photograph
-          documentUrl: files.customerPhotograph[0].path.replace(/\\/g, '/'),
-          originalName: files.customerPhotograph[0].originalname,
+          documentUrl: files.customer[0].path.replace(/\\/g, '/'),
+          originalName: files.customer[0].originalname,
         });
       }
 
@@ -149,6 +149,7 @@ export class MarketingExecutiveService {
           leadId: row.leadId,
           leadName: row.leadName,
           address: row.address, //House address
+          phone: row.phoneNumber,
           totalDealAmount: dealAmount,
           totalReceived: receivedAmount,
           // Fixes the SQL subtraction anomaly dynamically:

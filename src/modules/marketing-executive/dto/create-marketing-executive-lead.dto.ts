@@ -42,7 +42,7 @@ export class CreateMarketingExecutiveLeadDto {
     required: false,
   })
   @IsOptional()
-  customerPhotograph?: any;
+  customer?: any;
 
   @ApiProperty({
     type: 'string',
