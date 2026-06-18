@@ -15,6 +15,7 @@ import * as fs from 'fs'; // Import Node's filesystem module to delete files
 import { AssignSiteVisitorDto } from './dto/assign-site-vistor.dto';
 import { SetDealAmountDto } from './dto/set-deal-amount.dto';
 import { AddPaymentDto } from './dto/add-payment.dto';
+import { AssignInstallerDto } from './dto/assign-installer.dto';
 
 @Injectable()
 export class AdminService {
@@ -504,6 +505,108 @@ export class AdminService {
     );
   }
 
+  /**
+   * API 1: Fetches all active users with Installer/Technician privileges
+   */
+  async getAvailableInstallers() {
+    try {
+      // Direct raw query or repository lookup on usermaster
+      const visitors = await this.dataSource.manager.query(
+        `SELECT id, fullName, email 
+         FROM usermaster 
+         WHERE roleId = 4 AND status = 1`, // Assuming 4 = Installer Partner, 1 = Active
+      );
+
+      return {
+        success: true,
+        data: visitors.map((v) => ({
+          id: Number(v.id),
+          fullName: v.fullName,
+          email: v.email,
+        })),
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message || 'Failed to fetch installer',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * API 2: Transactional database method to safely assign the technician installer
+   */
+  async assignInstallerTransaction(
+    dto: AssignInstallerDto,
+    currentUserId: number,
+  ) {
+    const { leadId, installerUserId, notes } = dto;
+
+    return await this.dataSource.manager.transaction(
+      async (transactionalEntityManager) => {
+        // 1. Confirm the target lead exists
+        const lead = await transactionalEntityManager.findOne(
+          MarketingExecutiveLead,
+          {
+            where: { id: leadId.toString() },
+          },
+        );
+
+        if (!lead) {
+          throw new NotFoundException(`Lead with ID ${leadId} does not exist`);
+        }
+
+        // 2. Fetch the Visitor's name to use in the history timeline log description
+        const visitorUser = await transactionalEntityManager.query(
+          `SELECT fullName FROM usermaster WHERE id = ?`,
+          [installerUserId],
+        );
+
+        if (!visitorUser || visitorUser.length === 0) {
+          throw new NotFoundException(
+            `Installer with ID ${installerUserId} not found`,
+          );
+        }
+        const visitorName = visitorUser.fullName;
+
+        // 3. Update the assignment columns and pipeline status on the lead
+        await transactionalEntityManager.update(
+          MarketingExecutiveLead,
+          { id: leadId },
+          {
+            siteVisitorUserId: installerUserId.toString(),
+            status: LeadStatus.ASSIGNED_TO_TECHNICIAN, // Updates core lead status tracking
+          },
+        );
+
+        // 4. Construct description timeline text including any optional instructions typed into the modal
+        let eventDescription = `Lead assigned to Installer: ${visitorName}.`;
+        if (notes && notes.trim() !== '') {
+          eventDescription += ` | Notes: ${notes.trim()}`;
+        }
+
+        // 5. Append this action event permanently into the 'leadevent' table history
+        await transactionalEntityManager.query(
+          `INSERT INTO leadevent (leadId, eventName, userId, description, status, createdBy) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            leadId,
+            LeadStatus.ASSIGNED_TO_SITE_VISITOR, // eventName tracking match
+            installerUserId, // Target worker handling this event stage now
+            eventDescription,
+            1,
+            currentUserId, // Authenticated user performing the assignment
+          ],
+        );
+
+        return {
+          success: true,
+          message: `Lead successfully assigned to ${visitorName}. Timeline event logged.`,
+        };
+      },
+    );
+  }
+
   async setDealAmountTransaction(dto: SetDealAmountDto, currentUserId: number) {
     const { leadId, dealAmount } = dto;
 
@@ -723,7 +826,7 @@ export class AdminService {
             LeadStatus.QUERY_SENT,
             LeadStatus.CONTACTED,
             LeadStatus.APPROVED,
-            LeadStatus.SITE_VISIT_SCHEDULED,
+            LeadStatus.SITE_VISIT_COMPLETED,
             LeadStatus.INSTALLATION_STARTED,
           ],
         })
@@ -780,33 +883,20 @@ export class AdminService {
         // 4. Site Visit Bar (Groups all active fieldwork steps)
         .addSelect(
           `SUM(CASE WHEN lead.status IN (:...siteVisitStatuses) THEN 1 ELSE 0 END)`,
-          'siteVisitCount',
+          'siteVisitCompletedCount',
         )
         // 5. Installation Bar (Groups everything relating to mechanical setup builds)
         .addSelect(
           `SUM(CASE WHEN lead.status IN (:...installationStatuses) THEN 1 ELSE 0 END)`,
-          'installationCount',
+          'installationStartedCount',
         )
         // Securely bind all enum sets to prevent unquoted string crashes
         .setParameters({
-          newReviewStatuses: [
-            LeadStatus.QUERY_SENT,
-            LeadStatus.UNDER_REVIEW,
-            LeadStatus.ADMIN_CONTACTED,
-          ],
+          newReviewStatuses: [LeadStatus.QUERY_SENT],
           contactedStatus: LeadStatus.CONTACTED,
           approvedStatus: LeadStatus.APPROVED,
-          siteVisitStatuses: [
-            LeadStatus.ASSIGNED_TO_SITE_VISITOR,
-            LeadStatus.SITE_VISITOR_CONTACTED,
-            LeadStatus.SITE_VISIT_SCHEDULED,
-            LeadStatus.SITE_VISIT_COMPLETED,
-          ],
-          installationStatuses: [
-            LeadStatus.ASSIGNED_TO_TECHNICIAN,
-            LeadStatus.INSTALLATION_STARTED,
-            LeadStatus.INSTALLATION_COMPLETED,
-          ],
+          siteVisitStatuses: [LeadStatus.SITE_VISIT_COMPLETED],
+          installationStatuses: [LeadStatus.INSTALLATION_STARTED],
         })
         .getRawOne();
 
@@ -816,7 +906,7 @@ export class AdminService {
           activeTotal: parseInt(rawMetrics.totalActive || '0', 10),
           stages: [
             {
-              label: 'New / Review',
+              label: 'Query Sent',
               count: parseInt(rawMetrics.newReviewCount || '0', 10),
               color: 'orange',
             },
@@ -831,13 +921,13 @@ export class AdminService {
               color: 'blue',
             },
             {
-              label: 'Site Visit',
-              count: parseInt(rawMetrics.siteVisitCount || '0', 10),
+              label: 'Site Visit Completed',
+              count: parseInt(rawMetrics.siteVisitCompletedCount || '0', 10),
               color: 'cyan',
             },
             {
               label: 'Installation',
-              count: parseInt(rawMetrics.installationCount || '0', 10),
+              count: parseInt(rawMetrics.installationStartedCount || '0', 10),
               color: 'deep-orange',
             },
           ],

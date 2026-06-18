@@ -22,6 +22,7 @@ import { extname } from 'path';
 import { AssignSiteVisitorDto } from './dto/assign-site-vistor.dto';
 import { SetDealAmountDto } from './dto/set-deal-amount.dto';
 import { AddPaymentDto } from './dto/add-payment.dto';
+import { AssignInstallerDto } from './dto/assign-installer.dto';
 
 @ApiTags('Admin')
 @UseGuards(JwtAuthGuard)
@@ -120,6 +121,29 @@ export class AdminController {
   ) {
     return await this.adminService.assignSiteVisitorTransaction(
       assignSiteVisitorDto,
+      req.user.userId,
+    );
+  }
+
+  @Get('installers')
+  @ApiOperation({
+    summary: 'Fetch all available installers to populate select list cards',
+  })
+  async getInstallers() {
+    return await this.adminService.getAvailableInstallers();
+  }
+
+  @Post('assign-installer')
+  @ApiOperation({
+    summary:
+      'Assign an installer to a specific lead and record timeline tracking logs',
+  })
+  async assignInstaller(
+    @Body() assignInstallerDto: AssignInstallerDto,
+    @Req() req: any,
+  ) {
+    return await this.adminService.assignInstallerTransaction(
+      assignInstallerDto,
       req.user.userId,
     );
   }
