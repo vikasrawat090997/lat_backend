@@ -23,6 +23,7 @@ import { AssignSiteVisitorDto } from './dto/assign-site-vistor.dto';
 import { SetDealAmountDto } from './dto/set-deal-amount.dto';
 import { AddPaymentDto } from './dto/add-payment.dto';
 import { AssignInstallerDto } from './dto/assign-installer.dto';
+import { GetDealsBoardDto } from './dto/get-deals-board.dto';
 
 @ApiTags('Admin')
 @UseGuards(JwtAuthGuard)
@@ -230,5 +231,32 @@ export class AdminController {
   })
   async getActionList() {
     return await this.adminService.getActionRequiredList();
+  }
+
+  /**
+   * GET /finance/ledger-summary
+   * Supplies exact calculations to paint your four-column metric card block UI elements
+   */
+  @Get('ledger-summary')
+  @ApiOperation({
+    summary:
+      'Retrieve comprehensive currency flows, unsettled balances, and paid audit ratios',
+  })
+  async getPaymentCounter() {
+    return await this.adminService.getFinancesSummaryDashboard();
+  }
+
+  /**
+   * GET /finance/deals-board
+   * Populates list rows and upper horizontal tab count pills simultaneously
+   * Example: /finance/deals-board?tab=in_progress&search=Ramesh
+   */
+  @Get('deals-board')
+  @ApiOperation({
+    summary:
+      'Retrieve filterable customer records with structural financial payment details',
+  })
+  async getDealsBoard(@Query() query: GetDealsBoardDto) {
+    return await this.adminService.getDealsBoardData(query);
   }
 }

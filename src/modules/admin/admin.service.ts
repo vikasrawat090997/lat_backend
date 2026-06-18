@@ -16,6 +16,7 @@ import { AssignSiteVisitorDto } from './dto/assign-site-vistor.dto';
 import { SetDealAmountDto } from './dto/set-deal-amount.dto';
 import { AddPaymentDto } from './dto/add-payment.dto';
 import { AssignInstallerDto } from './dto/assign-installer.dto';
+import { DealsTabFilter, GetDealsBoardDto } from './dto/get-deals-board.dto';
 
 @Injectable()
 export class AdminService {
@@ -690,6 +691,38 @@ export class AdminService {
         ? Math.round((totalReceivedAmount / totalDealAmount) * 100)
         : 0;
 
+    // =========================================================================
+    // NEW EXTENSION: Fetch structural ledger lines from leadpaymentmappings
+    // =========================================================================
+    const paymentLogs = await this.leadsRepository.manager
+      .createQueryBuilder()
+      .select([
+        'p.id AS id',
+        'p.amount AS amount',
+        'p.paymentMode AS paymentMode',
+        'p.createdAt AS createdAt',
+      ])
+      .from('leadpaymentmappings', 'p')
+      .where('p.leadId = :leadId AND p.status = 1', { leadId })
+      .orderBy('p.createdAt', 'DESC') // Newest payment installments show at the top of the timeline
+      .getRawMany();
+
+    // Format individual history entry logs to match UI component fields cleanly
+    const historyList = paymentLogs.map((log, index) => {
+      // Formats the index counter mapping inversely (e.g. 1, 2, 3) or keeps it raw
+      return {
+        paymentIndex: paymentLogs.length - index, // Helpful for rendering the left item badge number
+        amount: parseFloat(log.amount || '0'),
+        note: log.paymentMode || '', // Maps your comment text column (e.g. "wdesfdrgftyu")
+        dateString: log.createdAt
+          ? new Date(log.createdAt).toLocaleDateString('en-GB', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            })
+          : '18 Jun 2026', // Output formats natively to "18 Jun 2026" matching your image header
+      };
+    });
     return {
       success: true,
       data: {
@@ -697,6 +730,12 @@ export class AdminService {
         pendingAmount: totalPendingAmount,
         receivedAmount: totalReceivedAmount,
         percentageOfDeal: `${progressPercentage}%`,
+        // Dynamic bottom indicator summaries
+        totalPaymentsCount: historyList.length,
+        paymentCountText: `${historyList.length} payment${historyList.length !== 1 ? 's' : ''}`, // Returns "1 payment" or "2 payments"
+
+        // New extra response key to map your dynamic list items instantly
+        paymentHistory: historyList,
       },
     };
   }
@@ -1068,6 +1107,224 @@ export class AdminService {
     } catch (error: any) {
       throw new HttpException(
         error.message || 'Failed to assemble action items lists',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Computes ledger-wide operational metrics for the dynamic financial summary viewport cards
+   */
+  async getFinancesSummaryDashboard() {
+    try {
+      const metrics = await this.leadsRepository
+        .createQueryBuilder('lead')
+        // Card 1 Metrics: Total tracked deals count & total value
+        .select(
+          'COUNT(CASE WHEN lead.amount > 0 THEN 1 END)',
+          'trackedDealsCount',
+        )
+        .addSelect('SUM(lead.amount)', 'totalDealValue')
+
+        // Card 2 Metrics: Sum of total currency collected
+        .addSelect(
+          'SUM(lead.amount - lead.pendingamount)',
+          'totalCollectedValue',
+        )
+
+        // Card 3 Metrics: Outstanding balance sums and partial counts tracking
+        .addSelect('SUM(lead.pendingamount)', 'totalOutstandingValue')
+        .addSelect(
+          `COUNT(CASE WHEN lead.pendingamount > 0 AND lead.pendingamount < lead.amount THEN 1 END)`,
+          'partialDealsCount',
+        )
+
+        // Card 4 Metrics: Fully settled deal parameters
+        .addSelect(
+          `COUNT(CASE WHEN lead.amount > 0 AND lead.pendingamount = 0 THEN 1 END)`,
+          'fullyPaidCount',
+        )
+        .getRawOne();
+
+      // Convert database string response values safely into clean number primitives
+      const trackedDealsCount = parseInt(metrics.trackedDealsCount || '0', 10);
+      const totalDealValue = parseFloat(metrics.totalDealValue || '0');
+      const totalCollected = parseFloat(metrics.totalCollectedValue || '0');
+      const totalOutstanding = parseFloat(metrics.totalOutstandingValue || '0');
+      const partialDealsCount = parseInt(metrics.partialDealsCount || '0', 10);
+      const fullyPaidCount = parseInt(metrics.fullyPaidCount || '0', 10);
+
+      // Calculate progress percentage ratios securely
+      const collectedPercentage =
+        totalDealValue > 0
+          ? Math.round((totalCollected / totalDealValue) * 100)
+          : 0;
+
+      return {
+        success: true,
+        data: {
+          totalDealValue: {
+            value: totalDealValue,
+            count: trackedDealsCount,
+          },
+          collected: {
+            value: totalCollected,
+            percentage: collectedPercentage,
+          },
+          outstanding: {
+            value: totalOutstanding,
+            count: partialDealsCount,
+          },
+          fullyPaid: {
+            count: fullyPaidCount,
+            fullyPaidCount,
+            trackedDealsCount,
+          },
+        },
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message ||
+          'Failed to aggregate systems ledger summary matrix variables',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Fetches the dynamic list of financial deals matching the current search parameters and tab filter selection
+   */
+  async getDealsBoardData(query: GetDealsBoardDto) {
+    try {
+      const { search, tab } = query;
+      const queryBuilder = this.leadsRepository.createQueryBuilder('mel');
+
+      // 1. Select primary rows and join to retrieve the original Marketing Executive name
+      queryBuilder
+        .select([
+          'mel.id AS id',
+          'mel.fullName AS customerName',
+          'mel.phoneNumber AS phoneNumber',
+          'mel.status AS status',
+          'mel.amount AS dealValue',
+          'mel.pendingamount AS pendingAmount',
+          'mel.createdAt AS createdAt',
+          'um.fullName AS marketingExecName',
+        ])
+        .innerJoin('usermaster', 'um', 'um.id = mel.userId');
+
+      // 2. Handle Tab-Specific Filter Logic
+      switch (tab) {
+        case DealsTabFilter.IN_PROGRESS:
+          // In Progress: Has a deal set, but still has an outstanding balance unpaid
+          queryBuilder.andWhere('mel.amount > 0 AND mel.pendingamount > 0');
+          break;
+        case DealsTabFilter.FULLY_PAID:
+          // Fully Paid: Has a deal set and the outstanding balance is completely cleared
+          queryBuilder.andWhere('mel.amount > 0 AND mel.pendingamount = 0');
+          break;
+        case DealsTabFilter.NO_DEAL:
+          // No Deal Set: Deal amount value is still 0 or unassigned
+          queryBuilder.andWhere('(mel.amount = 0 OR mel.amount IS NULL)');
+          break;
+        case DealsTabFilter.ALL:
+        default:
+          // No explicit filter for 'all' tab, retrieves everything matching text queries
+          break;
+      }
+
+      // 3. Handle Global Input Search Textbox Filter
+      if (search && search.trim() !== '') {
+        const searchKeyword = `%${search.trim()}%`;
+        queryBuilder.andWhere(
+          `(mel.fullName LIKE :searchKeyword OR 
+            mel.phoneNumber LIKE :searchKeyword OR 
+            CAST(mel.id AS CHAR) LIKE :searchKeyword)`,
+          { searchKeyword },
+        );
+      }
+
+      // Sort by newest entries first
+      queryBuilder.orderBy('mel.createdAt', 'DESC');
+
+      const rawRows = await queryBuilder.getRawMany();
+
+      // 4. Gather overall tab header counter totals across the system (ignores current tab but respects text search)
+      const countersQuery = this.leadsRepository
+        .createQueryBuilder('mel')
+        .select('COUNT(mel.id)', 'allCount')
+        .addSelect(
+          `COUNT(CASE WHEN mel.amount > 0 AND mel.pendingamount > 0 THEN 1 END)`,
+          'inProgressCount',
+        )
+        .addSelect(
+          `COUNT(CASE WHEN mel.amount > 0 AND mel.pendingamount = 0 THEN 1 END)`,
+          'fullyPaidCount',
+        )
+        .addSelect(
+          `COUNT(CASE WHEN mel.amount = 0 OR mel.amount IS NULL THEN 1 END)`,
+          'noDealCount',
+        );
+
+      if (search && search.trim() !== '') {
+        const searchKeyword = `%${search.trim()}%`;
+        countersQuery.where(
+          `(mel.fullName LIKE :searchKeyword OR mel.phoneNumber LIKE :searchKeyword OR CAST(mel.id AS CHAR) LIKE :searchKeyword)`,
+          { searchKeyword },
+        );
+      }
+      const rawCounters = await countersQuery.getRawOne();
+
+      // 5. Format the row payload dataset to map cleanly onto your UI layout
+      const mappedRows = rawRows.map((row) => {
+        const dealValue = parseFloat(row.dealValue || '0');
+        const pendingAmount = parseFloat(row.pendingAmount || '0');
+        const receivedAmount = Math.max(0, dealValue - pendingAmount);
+
+        // Calculate collection bar completion percentage
+        const collectionPercentage =
+          dealValue > 0 ? Math.round((receivedAmount / dealValue) * 100) : 0;
+
+        const year = row.createdAt
+          ? new Date(row.createdAt).getFullYear()
+          : 2026;
+
+        return {
+          id: parseInt(row.id, 10),
+          leadIdString: `SJ-${year}-${String(row.id).padStart(3, '0')}`,
+          customerName: row.customerName,
+          phoneNumber: row.phoneNumber,
+          marketingExecName: row.marketingExecName,
+          status: row.status,
+          hasDealSet: dealValue > 0, // Flag for frontend to conditionally switch to the "No deal set" badge view
+          financials:
+            dealValue > 0
+              ? {
+                  dealValue,
+                  receivedAmount,
+                  pendingAmount,
+                  progressPercentage: `${collectionPercentage}%`,
+                }
+              : null,
+        };
+      });
+
+      return {
+        success: true,
+        meta: {
+          tabs: {
+            all: parseInt(rawCounters.allCount || '0', 10),
+            inProgress: parseInt(rawCounters.inProgressCount || '0', 10),
+            fullyPaid: parseInt(rawCounters.fullyPaidCount || '0', 10),
+            noDeal: parseInt(rawCounters.noDealCount || '0', 10),
+          },
+        },
+        data: mappedRows,
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message ||
+          'Failed to process financial deals board data matrices',
         HttpStatus.BAD_REQUEST,
       );
     }
