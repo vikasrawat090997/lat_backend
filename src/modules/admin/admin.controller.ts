@@ -156,4 +156,55 @@ export class AdminController {
       req.user.userId,
     );
   }
+
+  /**
+   * GET /dashboard/global-counters
+   * Returns data items required to paint the top visual box summary statistics cards
+   */
+  @Get('global-counters')
+  @ApiOperation({
+    summary:
+      'Retrieve overall lead processing counters and conversion analytics',
+  })
+  async getCounters() {
+    return await this.adminService.getGlobalDashboardCounters();
+  }
+
+  /**
+   * GET /dashboard/pipeline-stages
+   * Returns data items required to build the progress bars loop
+   */
+  @Get('pipeline-stages')
+  @ApiOperation({
+    summary: 'Retrieve stage counters for custom horizontal progress charts',
+  })
+  async getStages() {
+    return await this.adminService.getPipelineStagesBreakdown();
+  }
+
+  /**
+   * GET /dashboard/payment-overview
+   * Supplies real financial aggregate metrics for the dashboard's currency box elements
+   */
+  @Get('payment-overview')
+  @ApiOperation({
+    summary:
+      'Retrieve absolute portfolio values, cash collection histories, and pending ledgers',
+  })
+  async getOverview() {
+    return await this.adminService.getGlobalPaymentOverview();
+  }
+
+  /**
+   * GET /dashboard/action-required
+   * Supplies list segments to cleanly map the actionable widget view elements
+   */
+  @Get('action-required')
+  @ApiOperation({
+    summary:
+      'Retrieve segmented attention lists limited to 5 records maximum per stage group',
+  })
+  async getActionList() {
+    return await this.adminService.getActionRequiredList();
+  }
 }

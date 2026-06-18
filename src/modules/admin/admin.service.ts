@@ -685,4 +685,301 @@ export class AdminService {
       },
     );
   }
+
+  /**
+   * Fetches overall analytics summaries for the main operational dashboard metrics viewport
+   */
+  async getGlobalDashboardCounters() {
+    try {
+      const rawMetrics = await this.leadsRepository
+        .createQueryBuilder('lead')
+        .select('COUNT(lead.id)', 'totalLeads')
+
+        // 1. Pending Review: Status is explicitly Query Sent (or map to Under Review based on your preference)
+        .addSelect(
+          `SUM(CASE WHEN lead.status = :pendingReviewStatus THEN 1 ELSE 0 END)`,
+          'pendingReviewCount',
+        )
+
+        // 2. Completed: Status has hit the final target lifecycle stage milestones
+        .addSelect(
+          `SUM(CASE WHEN lead.status IN (:...completedStatuses) THEN 1 ELSE 0 END)`,
+          'completedCount',
+        )
+
+        // 3. In Pipeline: Active statuses array mapping
+        .addSelect(
+          `SUM(CASE WHEN lead.status IN (:...pipelineStatuses) THEN 1 ELSE 0 END)`,
+          'inPipelineCount',
+        )
+        // Bind all parameters down here to securely escape quotes and handle arrays perfectly
+        .setParameters({
+          pendingReviewStatus: LeadStatus.QUERY_SENT, // If your UI means 'Under Review', switch this to LeadStatus.UNDER_REVIEW
+          completedStatuses: [
+            LeadStatus.PAYMENT_COMPLETED,
+            LeadStatus.QUERY_CLOSED,
+          ],
+          pipelineStatuses: [
+            LeadStatus.QUERY_SENT,
+            LeadStatus.CONTACTED,
+            LeadStatus.APPROVED,
+            LeadStatus.SITE_VISIT_SCHEDULED,
+            LeadStatus.INSTALLATION_STARTED,
+          ],
+        })
+        .getRawOne();
+
+      // Convert database string outputs into clean numbers
+      const totalLeads = parseInt(rawMetrics.totalLeads || '0', 10);
+      const pendingReview = parseInt(rawMetrics.pendingReviewCount || '0', 10);
+      const inPipeline = parseInt(rawMetrics.inPipelineCount || '0', 10);
+      const completed = parseInt(rawMetrics.completedCount || '0', 10);
+
+      return {
+        success: true,
+        data: {
+          totalLeads,
+          pendingReview,
+          inPipeline,
+          completed,
+        },
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message || 'Failed to aggregate top dashboard box values',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Fetches the breakdown counts for each individual visual pipeline stage bar
+   */
+  async getPipelineStagesBreakdown() {
+    try {
+      const rawMetrics = await this.leadsRepository
+        .createQueryBuilder('lead')
+        // Total Active Indicator (Total active rows currently tracked in operational pipeline)
+        .select('COUNT(lead.id)', 'totalActive')
+
+        // 1. New / Review Bar (Groups initial validation statuses)
+        .addSelect(
+          `SUM(CASE WHEN lead.status IN (:...newReviewStatuses) THEN 1 ELSE 0 END)`,
+          'newReviewCount',
+        )
+        // 2. Contacted Bar
+        .addSelect(
+          `SUM(CASE WHEN lead.status = :contactedStatus THEN 1 ELSE 0 END)`,
+          'contactedCount',
+        )
+        // 3. Approved Bar
+        .addSelect(
+          `SUM(CASE WHEN lead.status = :approvedStatus THEN 1 ELSE 0 END)`,
+          'approvedCount',
+        )
+        // 4. Site Visit Bar (Groups all active fieldwork steps)
+        .addSelect(
+          `SUM(CASE WHEN lead.status IN (:...siteVisitStatuses) THEN 1 ELSE 0 END)`,
+          'siteVisitCount',
+        )
+        // 5. Installation Bar (Groups everything relating to mechanical setup builds)
+        .addSelect(
+          `SUM(CASE WHEN lead.status IN (:...installationStatuses) THEN 1 ELSE 0 END)`,
+          'installationCount',
+        )
+        // Securely bind all enum sets to prevent unquoted string crashes
+        .setParameters({
+          newReviewStatuses: [
+            LeadStatus.QUERY_SENT,
+            LeadStatus.UNDER_REVIEW,
+            LeadStatus.ADMIN_CONTACTED,
+          ],
+          contactedStatus: LeadStatus.CONTACTED,
+          approvedStatus: LeadStatus.APPROVED,
+          siteVisitStatuses: [
+            LeadStatus.ASSIGNED_TO_SITE_VISITOR,
+            LeadStatus.SITE_VISITOR_CONTACTED,
+            LeadStatus.SITE_VISIT_SCHEDULED,
+            LeadStatus.SITE_VISIT_COMPLETED,
+          ],
+          installationStatuses: [
+            LeadStatus.ASSIGNED_TO_TECHNICIAN,
+            LeadStatus.INSTALLATION_STARTED,
+            LeadStatus.INSTALLATION_COMPLETED,
+          ],
+        })
+        .getRawOne();
+
+      return {
+        success: true,
+        data: {
+          activeTotal: parseInt(rawMetrics.totalActive || '0', 10),
+          stages: [
+            {
+              label: 'New / Review',
+              count: parseInt(rawMetrics.newReviewCount || '0', 10),
+              color: 'orange',
+            },
+            {
+              label: 'Contacted',
+              count: parseInt(rawMetrics.contactedCount || '0', 10),
+              color: 'purple',
+            },
+            {
+              label: 'Approved',
+              count: parseInt(rawMetrics.approvedCount || '0', 10),
+              color: 'blue',
+            },
+            {
+              label: 'Site Visit',
+              count: parseInt(rawMetrics.siteVisitCount || '0', 10),
+              color: 'cyan',
+            },
+            {
+              label: 'Installation',
+              count: parseInt(rawMetrics.installationCount || '0', 10),
+              color: 'deep-orange',
+            },
+          ],
+        },
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message ||
+          'Failed to aggregate pipeline analytics breakdown data arrays',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Aggregates system-wide financial statistics for the global dashboard payment overview overview cards
+   */
+  async getGlobalPaymentOverview() {
+    try {
+      const metrics = await this.leadsRepository
+        .createQueryBuilder('lead')
+        // Count how many leads actually have an initialized deal value set
+        .select('COUNT(CASE WHEN lead.amount > 0 THEN 1 END)', 'dealCount')
+        // Sum up total locked business value contracts
+        .addSelect('SUM(lead.amount)', 'totalDealValue')
+        // Sum up total remaining outstanding balances
+        .addSelect('SUM(lead.pendingamount)', 'totalPending')
+        .getRawOne();
+
+      const dealCount = parseInt(metrics.dealCount || '0', 10);
+      const totalDealValue = parseFloat(metrics.totalDealValue || '0');
+      const totalPending = parseFloat(metrics.totalPending || '0');
+
+      // Received amount is the difference between total deal value and what is outstanding
+      const totalReceived = Math.max(0, totalDealValue - totalPending);
+
+      return {
+        success: true,
+        data: {
+          dealsCount: dealCount,
+          dealValue: totalDealValue,
+          received: totalReceived,
+          pending: totalPending,
+        },
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message ||
+          'Failed to compile financial ledger analytics overview metrics',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Fetches actionable items broken down by bucket types for the dashboard sidebar lists
+   */
+  async getActionRequiredList() {
+    try {
+      // 1. Target all active target states that need attention from the table
+      const targetStatuses = [
+        `${LeadStatus.QUERY_SENT}`,
+        `${LeadStatus.ASSIGNED_TO_SITE_VISITOR}`,
+        `${LeadStatus.ASSIGNED_TO_TECHNICIAN}`,
+      ];
+
+      const activeLeads = await this.leadsRepository
+        .createQueryBuilder('lead')
+        .select([
+          'lead.id AS id',
+          'lead.fullName AS name',
+          'lead.status AS status',
+          'lead.createdAt AS createdAt',
+        ])
+        .where('lead.status IN (:...targetStatuses)', { targetStatuses })
+        .orderBy('lead.createdAt', 'DESC') // Newest items show first within their buckets
+        .getRawMany();
+
+      // 2. Filter and isolate each bucket independently, limiting rows to exactly 5 items max
+
+      // Bucket A: Pending Review (Matches Query Sent or Under Review)
+      const pendingReviewItems = activeLeads
+        .filter((lead) => lead.status === `${LeadStatus.QUERY_SENT}`)
+        .slice(0, 5);
+
+      // Bucket B: Needs Site Visitor
+      const needsSiteVisitorItems = activeLeads
+        .filter(
+          (lead) => lead.status === `${LeadStatus.ASSIGNED_TO_SITE_VISITOR}`,
+        )
+        .slice(0, 5);
+
+      // Bucket C: Needs Installer / Technician
+      const needsInstallerItems = activeLeads
+        .filter(
+          (lead) => lead.status === `${LeadStatus.ASSIGNED_TO_TECHNICIAN}`,
+        )
+        .slice(0, 5);
+
+      // 3. Format helper mapping helper to construct presentation Lead ID strings (e.g. SJ-2026-003)
+      const formatItem = (item: any) => {
+        const year = item.createdAt
+          ? new Date(item.createdAt).getFullYear()
+          : 2026;
+        return {
+          id: parseInt(item.id, 10),
+          name: item.name,
+          leadIdString: `SJ-${year}-${String(item.id).padStart(3, '0')}`,
+        };
+      };
+
+      // 4. Calculate total actionable items across all pipelines for the top-right red count badge
+      const totalItemsCount =
+        pendingReviewItems.length +
+        needsSiteVisitorItems.length +
+        needsInstallerItems.length;
+
+      return {
+        totalActionRequiredItems: totalItemsCount, // Renders the top-right pill badge ("6 items")
+        buckets: {
+          pendingReview: {
+            title: `Pending Review `,
+            count: pendingReviewItems.length,
+            items: pendingReviewItems.map(formatItem),
+          },
+          needsSiteVisitor: {
+            title: `Needs Site Visitor`,
+            count: needsSiteVisitorItems.length,
+            items: needsSiteVisitorItems.map(formatItem),
+          },
+          needsInstaller: {
+            title: `Needs Installer`,
+            count: needsInstallerItems.length,
+            items: needsInstallerItems.map(formatItem),
+          },
+        },
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message || 'Failed to assemble action items lists',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
 }
