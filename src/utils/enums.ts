@@ -34,6 +34,7 @@ export enum LeadStatus {
   SITE_VISIT_COMPLETED = 'Site Visit Completed',
   ASSIGNED_TO_TECHNICIAN = 'Assigned to Technician',
   CONTACTED = 'Contacted',
+  NOT_CONTACTED = 'Not Connected',
   FOLLOW_UP_1_SCHEDULED = 'Follow-up 1 Scheduled',
   FOLLOW_UP_2_SCHEDULED = 'Follow-up 2 Scheduled',
   FOLLOW_UP_3_SCHEDULED = 'Follow-up 3 Scheduled',
@@ -47,4 +48,12 @@ export enum DocumentType {
   DOCUMENT = 'Document',
   ROOF = 'Roof',
   INSTALLMENT = 'Installment',
+}
+
+export enum AssignmentTabFilter {
+  ALL = 'all',
+  NEW = 'new',
+  IN_PROGRESS = 'in_progress',
+  COMPLETED = 'completed',
+  CLOSED = 'closed',
 }

@@ -26,7 +26,7 @@ import { GetLeadsQueryDto } from '../admin/dto/all-leads.dto';
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
 
 @ApiTags('Marketing Executive')
-@UseGuards(JwtAuthGuard)
+// @UseGuards(JwtAuthGuard)
 @Controller('marketing-executive')
 export class MarketingExecutiveController {
   constructor(

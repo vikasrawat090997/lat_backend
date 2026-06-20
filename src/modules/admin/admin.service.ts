@@ -10,13 +10,17 @@ import { MarketingExecutiveLead } from '../marketing-executive/entities/marketin
 import { DataSource, Repository } from 'typeorm';
 import { GetLeadsQueryDto } from './dto/all-leads.dto';
 import { RejectLeadDto } from './dto/reject-lead.dto';
-import { LeadStatus } from 'src/utils/enums';
+import { AssignmentTabFilter, LeadStatus } from 'src/utils/enums';
 import * as fs from 'fs'; // Import Node's filesystem module to delete files
 import { AssignSiteVisitorDto } from './dto/assign-site-vistor.dto';
 import { SetDealAmountDto } from './dto/set-deal-amount.dto';
 import { AddPaymentDto } from './dto/add-payment.dto';
 import { AssignInstallerDto } from './dto/assign-installer.dto';
 import { DealsTabFilter, GetDealsBoardDto } from './dto/get-deals-board.dto';
+import { GetAssignmentsQueryDto } from './dto/get-site-visitor-assignment.dto';
+import { CallStatusSelection, LogContactDto } from './dto/log-contact.dto';
+import { ScheduleVisitDto } from './dto/schedule-visit.dto';
+import { CompleteVisitDto } from './dto/complete-visit.dto';
 
 @Injectable()
 export class AdminService {
@@ -1325,6 +1329,649 @@ export class AdminService {
       throw new HttpException(
         error.message ||
           'Failed to process financial deals board data matrices',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Fetches assignments for a specific site visitor, structures the stepper pipeline,
+   * and builds descending timeline history arrays for every single card.
+   */
+  async getVisitorAssignmentsList(
+    query: GetAssignmentsQueryDto,
+    siteVisitorId: number,
+  ) {
+    try {
+      const { search, tab } = query;
+      const queryBuilder = this.leadsRepository.createQueryBuilder('mel');
+
+      // 1. Fetch core data and fetch the raw assignments assigned to this visitor
+      queryBuilder
+        .select([
+          'mel.id AS id',
+          'mel.fullName AS customerName',
+          'mel.phoneNumber AS phoneNumber',
+          'mel.address AS address',
+          'mel.status AS status',
+          'mel.createdAt AS createdAt',
+        ])
+        .where('mel.siteVisitorUserId = :siteVisitorId', { siteVisitorId });
+
+      // 2. Tab filtering logic mapping (FIXED: Using safe parameterized tokens)
+      switch (tab) {
+        case AssignmentTabFilter.NEW:
+          queryBuilder.andWhere('mel.status = :newStatus');
+          break;
+        case AssignmentTabFilter.IN_PROGRESS:
+          queryBuilder.andWhere('mel.status IN (:...inProgressStatuses)');
+          break;
+        case AssignmentTabFilter.COMPLETED:
+          queryBuilder.andWhere('mel.status = :completedStatus');
+          break;
+        case AssignmentTabFilter.CLOSED:
+          queryBuilder.andWhere('mel.status = :closedStatus');
+          break;
+        default:
+          break;
+      }
+
+      // 3. Text search query block
+      if (search && search.trim() !== '') {
+        const searchKeyword = `%${search.trim()}%`;
+        queryBuilder.andWhere(
+          `(mel.fullName LIKE :searchKeyword OR 
+          mel.phoneNumber LIKE :searchKeyword OR 
+          CAST(mel.id AS CHAR) LIKE :searchKeyword)`,
+          { searchKeyword },
+        );
+      }
+
+      // Bind parameters for the main query list
+      queryBuilder.setParameters({
+        newStatus: LeadStatus.ASSIGNED_TO_SITE_VISITOR,
+        inProgressStatuses: [
+          LeadStatus.CONTACTED,
+          LeadStatus.NOT_CONTACTED,
+          LeadStatus.SITE_VISIT_SCHEDULED,
+        ],
+        completedStatus: LeadStatus.SITE_VISIT_COMPLETED,
+        closedStatus: LeadStatus.QUERY_CLOSED,
+      });
+
+      queryBuilder.orderBy('mel.createdAt', 'DESC');
+      const rawLeads = await queryBuilder.getRawMany();
+
+      // 4. Calculate tab counts for headers (FIXED: Bound parameters to avoid syntax crash)
+      const counters = await this.leadsRepository
+        .createQueryBuilder('mel')
+        .select('COUNT(mel.id)', 'allCount')
+        .addSelect(
+          `COUNT(CASE WHEN mel.status = :cNewStatus THEN 1 END)`,
+          'newCount',
+        )
+        .addSelect(
+          `COUNT(CASE WHEN mel.status IN (:...cInProgressStatuses) THEN 1 END)`,
+          'inProgressCount',
+        )
+        .addSelect(
+          `COUNT(CASE WHEN mel.status = :cCompletedStatus THEN 1 END)`,
+          'completedCount',
+        )
+        .addSelect(
+          `COUNT(CASE WHEN mel.status = :cClosedStatus THEN 1 END)`,
+          'closedCount',
+        )
+        .where('mel.siteVisitorUserId = :siteVisitorId', { siteVisitorId })
+        .setParameters({
+          cNewStatus: LeadStatus.ASSIGNED_TO_SITE_VISITOR,
+          cInProgressStatuses: [
+            LeadStatus.CONTACTED,
+            LeadStatus.NOT_CONTACTED,
+            LeadStatus.SITE_VISIT_SCHEDULED,
+          ],
+          cCompletedStatus: LeadStatus.SITE_VISIT_COMPLETED,
+          cClosedStatus: LeadStatus.QUERY_CLOSED,
+        })
+        .getRawOne();
+
+      // 5. Gather full leadevent logs for all matching records
+      const leadIds = rawLeads.map((l) => parseInt(l.id, 10));
+      let allEvents = [];
+
+      if (leadIds.length > 0) {
+        allEvents = await this.leadsRepository.manager
+          .createQueryBuilder()
+          .select([
+            'le.leadId AS leadId',
+            'le.id AS eventId',
+            'le.eventName AS eventName',
+            'le.description AS description',
+            'le.createdAt AS createdAt',
+            'um.fullName AS doneBy',
+            'rm.name AS roleName',
+          ])
+          .from('leadevent', 'le')
+          .leftJoin('usermaster', 'um', 'um.id = le.userId')
+          .leftJoin('rolemaster', 'rm', 'rm.id = um.roleId')
+          .where('le.leadId IN (:...leadIds)', { leadIds })
+          .orderBy('le.createdAt', 'DESC')
+          .getRawMany();
+      }
+      // 6. Map rows cleanly onto the complex layout structures seen in the image view
+      const formattedData = rawLeads.map((row) => {
+        const leadIdNum = parseInt(row.id, 10);
+        const year = row.createdAt
+          ? new Date(row.createdAt).getFullYear()
+          : 2026;
+        const currentStatus = row.status;
+
+        // Stepper state resolver calculations
+        let progressStep = 1;
+        if (currentStatus === LeadStatus.CONTACTED || LeadStatus.NOT_CONTACTED)
+          progressStep = 2;
+        if (currentStatus === LeadStatus.SITE_VISIT_SCHEDULED) progressStep = 3;
+        if (currentStatus === LeadStatus.SITE_VISIT_COMPLETED) progressStep = 4;
+
+        // Isolate events belonging specifically to this row card path
+        const matchingHistory = allEvents
+          .filter((e) => parseInt(e.leadId, 10) === leadIdNum)
+          .map((e) => ({
+            id: e.eventId,
+            title: e.eventName,
+            detail: e.description,
+            operator: e.doneBy || 'System',
+            operatorRole: e.roleName || 'System',
+            timestamp: e.createdAt,
+          }));
+
+        return {
+          id: leadIdNum,
+          leadIdString: `SJ-${year}-${String(leadIdNum).padStart(3, '0')}`,
+          customerName: row.customerName,
+          phoneNumber: row.phoneNumber,
+          address: row.address,
+          status: currentStatus,
+
+          // Stepper indicator tracking mappings
+          stepper: {
+            currentStepIndex: progressStep,
+            steps: [
+              { label: 'Assigned', completed: progressStep >= 1 },
+              { label: 'Contacted', completed: progressStep >= 2 },
+              { label: 'Scheduled', completed: progressStep >= 3 },
+              { label: 'Visit Done', completed: progressStep >= 4 },
+            ],
+          },
+
+          // Array containing full timeline history elements sorted DESC
+          timelineEvents: matchingHistory,
+        };
+      });
+
+      return {
+        success: true,
+        meta: {
+          tabs: {
+            all: parseInt(counters.allCount || '0', 10),
+            new: parseInt(counters.newCount || '0', 10),
+            inProgress: parseInt(counters.inProgressCount || '0', 10),
+            completed: parseInt(counters.completedCount || '0', 10),
+            closed: parseInt(counters.closedCount || '0', 10),
+          },
+        },
+        data: formattedData,
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message ||
+          'Failed to populate assignments dashboard matrix bundles',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Safe transactional operation logging call details and moving the assignment progress forward
+   */
+  async logInitialContactTransaction(
+    dto: LogContactDto,
+    currentUserId: number,
+  ) {
+    const { leadId, callStatus, callRemarks } = dto;
+
+    return await this.dataSource.manager.transaction(
+      async (transactionalEntityManager) => {
+        // 1. Validate target lead row existence
+        const lead = await transactionalEntityManager.findOne(
+          MarketingExecutiveLead,
+          {
+            where: { id: leadId.toString() },
+          },
+        );
+
+        if (!lead) {
+          throw new NotFoundException(`Lead with ID ${leadId} does not exist`);
+        }
+
+        // 2. Determine target workflow tracking state based on call status selection outcome
+        let updatedLeadStatus = lead.status; // Default fallback: hold current status state
+
+        if (callStatus === CallStatusSelection.CONNECTED) {
+          // Successful connection moves lead onto the "Contacted" stage tier mapping
+          updatedLeadStatus = LeadStatus.SITE_VISIT_SCHEDULED;
+        } else if (callStatus === CallStatusSelection.NOT_CONNECTED) {
+          // Disqualifying parameters drop the profile directly into 'Rejected'
+          updatedLeadStatus = LeadStatus.NOT_CONTACTED;
+        } else if (
+          callStatus === CallStatusSelection.NOT_INTERESTED ||
+          callStatus === CallStatusSelection.WRONG_NUMBER
+        ) {
+          // Disqualifying parameters drop the profile directly into 'Rejected'
+          updatedLeadStatus = LeadStatus.QUERY_CLOSED;
+        }
+
+        // 3. Apply updates down into the marketingexecutiveleads table
+        await transactionalEntityManager.update(
+          MarketingExecutiveLead,
+          { id: leadId },
+          { status: updatedLeadStatus },
+        );
+
+        // 4. Formulate the comprehensive text log payload block for timeline histories
+        const combinedDescription = `[Call Status: ${callStatus}] — Remarks: "${callRemarks}"`;
+
+        // 5. Build and insert the backup audit record row directly into 'leadevent'
+        await transactionalEntityManager.query(
+          `INSERT INTO leadevent (leadId, eventName, userId, description, status, createdBy) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            leadId,
+            callStatus,
+            currentUserId, // The specific field worker logging this interaction
+            combinedDescription,
+            1, // Active status code tracking flag
+            currentUserId, // Creator audit tracking path mapping
+          ],
+        );
+
+        return {
+          success: true,
+          message: `Contact logs saved successfully. Pipeline status shifted to: ${updatedLeadStatus}`,
+          data: {
+            currentStatus: updatedLeadStatus,
+          },
+        };
+      },
+    );
+  }
+
+  /**
+   * Transactional operation that logs appointments and moves the lead status forward
+   */
+  async scheduleSiteVisitTransaction(
+    dto: ScheduleVisitDto,
+    currentUserId: number,
+  ) {
+    const { leadId, visitDate, timeSlot, notes } = dto;
+
+    return await this.dataSource.manager.transaction(
+      async (transactionalEntityManager) => {
+        // 1. Confirm the lead profile context exists
+        const lead = await transactionalEntityManager.findOne(
+          MarketingExecutiveLead,
+          {
+            where: { id: leadId.toString() },
+          },
+        );
+
+        if (!lead) {
+          throw new NotFoundException(`Lead with ID ${leadId} does not exist`);
+        }
+
+        // 2. Advance the primary lead pipeline status index to "Site Visit Scheduled"
+        await transactionalEntityManager.update(
+          MarketingExecutiveLead,
+          { id: leadId },
+          { status: LeadStatus.SITE_VISIT_SCHEDULED },
+        );
+
+        // 3. Insert row data into your newly declared 'leadsitevisitschedules' tracker mapping table
+        await transactionalEntityManager.query(
+          `INSERT INTO leadsitevisitschedules (leadId, visitDate, timeSlot, notes, createdBy) 
+         VALUES (?, ?, ?, ?, ?)`,
+          [leadId, visitDate, timeSlot, notes || null, currentUserId],
+        );
+
+        // 4. Construct detailed text timeline records string context blocks
+        const cleanDate = new Date(visitDate).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        });
+        let historyDescription = `Site visit scheduled for ${cleanDate} during the [${timeSlot}] window.`;
+        if (notes && notes.trim() !== '') {
+          historyDescription += ` | Extra Notes: "${notes.trim()}"`;
+        }
+
+        // 5. Commit record straight into your exact 'leadevent' tracking framework layout
+        await transactionalEntityManager.query(
+          `INSERT INTO leadevent (leadId, eventName, userId, description, status, createdBy) 
+         VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            leadId,
+            LeadStatus.SITE_VISIT_SCHEDULED,
+            currentUserId,
+            historyDescription,
+            1,
+            currentUserId,
+          ],
+        );
+
+        return {
+          success: true,
+          message:
+            'Field visit appointment locked down and system timelines updated successfully.',
+          data: {
+            assignedStatus: 'Site Visit Scheduled',
+            date: visitDate,
+            timeSlot,
+          },
+        };
+      },
+    );
+  }
+
+  async completeSiteVisitTransaction(
+    dto: CompleteVisitDto,
+    leadId: number,
+    files: Express.Multer.File[],
+    currentUserId: number,
+  ) {
+    const { assessmentNotes } = dto;
+
+    try {
+      return await this.dataSource.manager.transaction(
+        async (transactionalEntityManager) => {
+          // 1. Check if lead exists
+          const lead = await transactionalEntityManager.findOne(
+            MarketingExecutiveLead,
+            {
+              where: { id: leadId.toString() },
+            },
+          );
+
+          if (!lead) {
+            throw new NotFoundException(
+              `Lead with ID ${leadId} does not exist`,
+            );
+          }
+
+          // 2. Advance target master lead pipeline status
+          await transactionalEntityManager.update(
+            MarketingExecutiveLead,
+            { id: leadId },
+            { status: LeadStatus.SITE_VISIT_COMPLETED },
+          );
+
+          // 3. Loop through files and insert paths into marketingexecutivedocumentmapping
+          for (const file of files) {
+            const targetUrl = `uploads/marketingExecutive/${file.filename}`;
+            await transactionalEntityManager.query(
+              `INSERT INTO marketingexecutivedocumentmapping (leadId, documentTypeId, documentUrl, originalName) 
+             VALUES (?, ?, ?, ?)`,
+              [leadId, 6, targetUrl, file.originalname], // Assuming documentTypeId = 1 for Roof Assessment Photos
+            );
+          }
+
+          // 4. Record permanent tracking item in leadevent log history
+          const eventDescription = `Site Visit Completed. Notes: "${assessmentNotes}" | [Photos Attached: ${files.length}]`;
+          await transactionalEntityManager.query(
+            `INSERT INTO leadevent (leadId, eventName, userId, description, status, createdBy) 
+           VALUES (?, ?, ?, ?, 1, ?)`,
+            [
+              leadId,
+              LeadStatus.SITE_VISIT_COMPLETED,
+              currentUserId,
+              eventDescription,
+              currentUserId,
+            ],
+          );
+
+          return {
+            success: true,
+            message:
+              'Site assessment details and photographs saved successfully.',
+            uploadedCount: files.length,
+          };
+        },
+      );
+    } catch (error: any) {
+      // =========================================================================
+      // EXCEPTION TRANSACTION FILE CLEANUP
+      // Wipes out uploaded images if database transaction errors out
+      // =========================================================================
+      for (const file of files) {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      }
+
+      throw new HttpException(
+        error.message ||
+          'Failed to complete site visit workflow, media files cleaned up.',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Aggregates field pipeline funnel numbers and conversion conversion metrics for a site visitor dashboard
+   */
+  async getVisitorFunnelStats(siteVisitorId: number) {
+    try {
+      const metrics = await this.leadsRepository
+        .createQueryBuilder('lead')
+        // 1. Baseline total active assignments count tracker
+        .select('COUNT(lead.id)', 'assignedCount')
+
+        // 2. Count buckets per structural state (FIXED: Uses valid conditional SQL syntax & bound parameters)
+        .addSelect(
+          `COUNT(CASE WHEN lead.status IN (:contactedStatus, :notContactedStatus) THEN 1 END)`,
+          'contactedCount',
+        )
+        .addSelect(
+          `COUNT(CASE WHEN lead.status = :scheduledStatus THEN 1 END)`,
+          'scheduledCount',
+        )
+        .addSelect(
+          `COUNT(CASE WHEN lead.status = :completedStatus THEN 1 END)`,
+          'completedCount',
+        )
+        .addSelect(
+          `COUNT(CASE WHEN lead.status = :closedStatus THEN 1 END)`,
+          'closedCount',
+        )
+        .where('lead.siteVisitorUserId = :siteVisitorId', { siteVisitorId })
+
+        // 3. Securely bind your LeadStatus values to avoid SQL parser crashes
+        .setParameters({
+          contactedStatus: LeadStatus.CONTACTED,
+          notContactedStatus: LeadStatus.NOT_CONTACTED,
+          scheduledStatus: LeadStatus.SITE_VISIT_SCHEDULED,
+          completedStatus: LeadStatus.SITE_VISIT_COMPLETED,
+          closedStatus: LeadStatus.QUERY_CLOSED,
+        })
+        .getRawOne();
+
+      const assigned = parseInt(metrics.assignedCount || '0', 10);
+      const contacted = parseInt(metrics.contactedCount || '0', 10);
+      const scheduled = parseInt(metrics.scheduledCount || '0', 10);
+      const completed = parseInt(metrics.completedCount || '0', 10);
+      const closed = parseInt(metrics.closedCount || '0', 10);
+
+      // Helper inline function to calculate conversion drop-off percentages against the baseline total
+      const calcPercentage = (stageCount: number) => {
+        return assigned > 0 ? Math.round((stageCount / assigned) * 100) : 0;
+      };
+
+      return {
+        success: true,
+        data: {
+          assigned: {
+            count: assigned,
+          },
+          contacted: {
+            count: contacted,
+            percentageString: `${calcPercentage(contacted)}%`,
+          },
+          scheduled: {
+            count: scheduled,
+            percentageString: `${calcPercentage(scheduled)}%`,
+          },
+          completed: {
+            count: completed,
+            percentageString: `${calcPercentage(completed)}%`,
+          },
+          closed: {
+            count: closed,
+            percentageString: `${calcPercentage(closed)}%`,
+          },
+        },
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message ||
+          'Failed to aggregate pipeline conversion metric indices.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Compiles the complete composite summary dashboard context for a specific field visitor user
+   */
+  async getVisitorHomeDashboard(siteVisitorId: number) {
+    try {
+      // =========================================================================
+      //  SITE VISITS UPCOMING BUCKET
+      // =========================================================================
+      const upcomingCount = await this.leadsRepository.count({
+        where: {
+          siteVisitorUserId: siteVisitorId.toString(),
+          status: LeadStatus.SITE_VISIT_SCHEDULED,
+        },
+      });
+
+      const rawUpcomingLead = await this.leadsRepository
+        .createQueryBuilder('mel')
+        .select([
+          'mel.id AS id',
+          'mel.fullName AS customerName',
+          'mel.address AS address',
+          'mel.createdAt AS createdAt',
+          'sched.visitDate AS visitDate',
+          'sched.timeSlot AS timeSlot',
+        ])
+        .innerJoin('leadsitevisitschedules', 'sched', 'sched.leadId = mel.id')
+        .where(
+          'mel.siteVisitorUserId = :siteVisitorId AND mel.status = :status',
+          { siteVisitorId, status: LeadStatus.SITE_VISIT_SCHEDULED },
+        )
+        .orderBy('sched.visitDate', 'ASC')
+        .getRawOne();
+
+      let upcomingCard = null;
+      if (rawUpcomingLead) {
+        const cleanDate = rawUpcomingLead.visitDate
+          ? new Date(rawUpcomingLead.visitDate).toLocaleDateString('en-GB')
+          : '';
+        upcomingCard = {
+          id: parseInt(rawUpcomingLead.id, 10),
+          customerName: rawUpcomingLead.customerName,
+          address: rawUpcomingLead.address,
+          scheduleString: `${cleanDate} · ${rawUpcomingLead.timeSlot}`,
+        };
+      }
+
+      // =========================================================================
+      // =========================================================================
+      // 4. DATA PANEL D: MY PERFORMANCE METRIC MATRIX (FIXED with Enums & Bindings)
+      // =========================================================================
+      const metrics = await this.leadsRepository
+        .createQueryBuilder('lead')
+        .select('COUNT(lead.id)', 'totalAssigned')
+
+        // Counts leads that have progressed to at least the contacted milestone phase
+        .addSelect(
+          `COUNT(CASE WHEN lead.status IN (:...pContactedStatuses) THEN 1 END)`,
+          'contactedCount',
+        )
+        // Counts leads that have progressed to or past the visit scheduled phase
+        .addSelect(
+          `COUNT(CASE WHEN lead.status IN (:...pScheduledStatuses) THEN 1 END)`,
+          'scheduledCount',
+        )
+        // Counts leads that are explicitly finished with field deployment visits
+        .addSelect(
+          `COUNT(CASE WHEN lead.status = :pCompletedStatus THEN 1 END)`,
+          'completedCount',
+        )
+        .where('lead.siteVisitorUserId = :siteVisitorId', { siteVisitorId })
+
+        // Securely lock down all active runtime enum definitions
+        .setParameters({
+          pContactedStatuses: [LeadStatus.CONTACTED, LeadStatus.NOT_CONTACTED],
+          pScheduledStatuses: [LeadStatus.SITE_VISIT_SCHEDULED],
+          pCompletedStatus: LeadStatus.SITE_VISIT_COMPLETED,
+        })
+        .getRawOne();
+
+      const totalAssigned = parseInt(metrics.totalAssigned || '0', 10);
+      const contacted = parseInt(metrics.contactedCount || '0', 10);
+      const visitsScheduled = parseInt(metrics.scheduledCount || '0', 10);
+      const visitsCompleted = parseInt(metrics.completedCount || '0', 10);
+
+      // Fetch dynamic total uploaded roof photos mapping count count
+      const photoMetric = await this.dataSource.manager
+        .createQueryBuilder()
+        .select('COUNT(doc.id)', 'photoCount')
+        .from('marketingexecutivedocumentmapping', 'doc')
+        .innerJoin('marketingexecutiveleads', 'mel', 'mel.id = doc.leadId')
+        .where(
+          'mel.siteVisitorUserId = :siteVisitorId AND doc.documentTypeId = 1',
+          { siteVisitorId },
+        )
+        .getRawOne();
+
+      const roofPhotosTaken = parseInt(photoMetric.photoCount || '0', 10);
+      const completionRate =
+        totalAssigned > 0
+          ? Math.round((visitsCompleted / totalAssigned) * 100)
+          : 0;
+
+      return {
+        success: true,
+        data: {
+          siteVisitsUpcoming: {
+            badgeCount: upcomingCount,
+            lead: upcomingCard,
+          },
+          myPerformance: {
+            totalAssigned,
+            contacted,
+            visitsScheduled,
+            visitsCompleted,
+            roofPhotosTaken,
+            completionRate: `${completionRate}%`,
+            progressSubtext: `${visitsCompleted} of ${totalAssigned} visits completed`,
+          },
+        },
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        error.message ||
+          'Failed to aggregate landing home dashboard framework.',
         HttpStatus.BAD_REQUEST,
       );
     }

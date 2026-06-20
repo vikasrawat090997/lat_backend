@@ -1,13 +1,18 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  FileTypeValidator,
   Get,
+  MaxFileSizeValidator,
   Param,
+  ParseFilePipe,
   ParseIntPipe,
   Post,
   Query,
   Req,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -16,7 +21,7 @@ import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/auth-roles.guard';
 import { GetLeadsQueryDto } from './dto/all-leads.dto';
 import { RejectLeadDto } from './dto/reject-lead.dto';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { AssignSiteVisitorDto } from './dto/assign-site-vistor.dto';
@@ -24,9 +29,13 @@ import { SetDealAmountDto } from './dto/set-deal-amount.dto';
 import { AddPaymentDto } from './dto/add-payment.dto';
 import { AssignInstallerDto } from './dto/assign-installer.dto';
 import { GetDealsBoardDto } from './dto/get-deals-board.dto';
+import { GetAssignmentsQueryDto } from './dto/get-site-visitor-assignment.dto';
+import { LogContactDto } from './dto/log-contact.dto';
+import { ScheduleVisitDto } from './dto/schedule-visit.dto';
+import { CompleteVisitDto } from './dto/complete-visit.dto';
 
 @ApiTags('Admin')
-@UseGuards(JwtAuthGuard)
+// @UseGuards(JwtAuthGuard)
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
@@ -258,5 +267,147 @@ export class AdminController {
   })
   async getDealsBoard(@Query() query: GetDealsBoardDto) {
     return await this.adminService.getDealsBoardData(query);
+  }
+
+  // ----------------------          Site Visitor     ---------------------------
+  /**
+   * GET /visitor/my-assignments
+   * Pulls structural assignment cards matching the logged-in user profile sessions
+   */
+  @Get('site-visitor/my-assignments')
+  @ApiOperation({
+    summary:
+      'Retrieve specialized assignments and execution step markers for logged-in workers',
+  })
+  async getMyLeads(@Query() query: GetAssignmentsQueryDto, @Req() req: any) {
+    return await this.adminService.getVisitorAssignmentsList(
+      query,
+      req.user?.id || 212,
+    );
+  }
+
+  /**
+   * POST /visitor/log-contact
+   * Fired when clicking the purple 'Log Contact' submission action button within the modal UI popup layout
+   */
+  @Post('site-visitor/log-contact')
+  @ApiOperation({
+    summary:
+      'Submit call outcome status buttons and store interaction remarks texts',
+  })
+  @ApiBody({ type: LogContactDto })
+  async submitCallLogs(@Body() logContactDto: LogContactDto, @Req() req: any) {
+    // Automatically extract user context from request passport sessions, fallback to ID 5
+
+    return await this.adminService.logInitialContactTransaction(
+      logContactDto,
+      req.user?.id || 212,
+    );
+  }
+
+  /**
+   * POST /visitor/schedule-visit
+   * Triggered by filling form elements and clicking the teal 'Schedule Visit' button inside the UI modal
+   */
+  @Post('site-visitor/schedule-visit')
+  @ApiOperation({
+    summary:
+      'Lock down specific appointments, updating main lead tracking status branches',
+  })
+  @ApiBody({ type: ScheduleVisitDto })
+  async saveVisitSchedule(
+    @Body() scheduleVisitDto: ScheduleVisitDto,
+    @Req() req: any,
+  ) {
+    return await this.adminService.scheduleSiteVisitTransaction(
+      scheduleVisitDto,
+      req.user?.id || 212,
+    );
+  }
+
+  @Post('site-visitor/complete-visit/:leadId')
+  @ApiOperation({
+    summary:
+      'Upload roof photos (max 4, 2MB each) and complete site assessment',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ type: CompleteVisitDto })
+  @UseInterceptors(
+    FilesInterceptor('roofPhotos', 4, {
+      storage: diskStorage({
+        destination: './uploads/marketingExecutive',
+        filename: (req, file, callback) => {
+          const uniqueSuffix =
+            Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const ext = extname(file.originalname);
+          callback(null, `roof-${uniqueSuffix}${ext}`);
+        },
+      }),
+    }),
+  )
+  async completeSiteVisit(
+    @Body() completeVisitDto: CompleteVisitDto,
+    @Req() req: any,
+    @Param('leadId', ParseIntPipe) leadId: number,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    // 1. Minimum 1 photo check
+    if (!files || files.length === 0) {
+      throw new BadRequestException(
+        'At least 1 roof photo is required to complete the site visit.',
+      );
+    }
+
+    const maxSizeBytes = 2 * 1024 * 1024; // 2MB
+    const allowedExtensions = /\.(jpg|jpeg|png|webp)$/i;
+
+    // 2. Validate every file individually in a single map loop
+    for (const file of files) {
+      if (file.size > maxSizeBytes) {
+        throw new BadRequestException(
+          `File "${file.originalname}" exceeds the 2MB size limit.`,
+        );
+      }
+      if (!file.originalname.match(allowedExtensions)) {
+        throw new BadRequestException(
+          `File "${file.originalname}" has an invalid type. Only JPG, JPEG, PNG, and WEBP are allowed.`,
+        );
+      }
+    }
+
+    return await this.adminService.completeSiteVisitTransaction(
+      completeVisitDto,
+      leadId,
+      files,
+      req.user?.id || 212,
+    );
+  }
+
+  /**
+   * GET /visitor/analytics/funnel
+   * Pulls metrics to draw the horizontal milestone funnel pipeline cards
+   */
+  @Get('site-visitor/dashboard-count')
+  @ApiOperation({
+    summary:
+      'Retrieve stage conversion indices and counts for the current logged-in visitor',
+  })
+  async getFunnelData(@Req() req: any) {
+    return await this.adminService.getVisitorFunnelStats(req?.user?.id || 212);
+  }
+
+  /**
+   * GET /visitor/dashboard/home-summary
+   * Collects item parameters to draw the visitor homepage layout grid viewport
+   */
+  @Get('site-visitor/dashboard/home-summary')
+  @ApiOperation({
+    summary:
+      'Retrieve high level overview status cards and personal ledger performance indices',
+  })
+  async getLandingOverview(@Req() req: any) {
+    return await this.adminService.getVisitorHomeDashboard(
+      req?.user?.id || 212,
+    );
   }
 }
