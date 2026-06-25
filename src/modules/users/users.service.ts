@@ -127,6 +127,24 @@ export class UsersService {
     };
   }
 
+  async getSubjectList() {
+    const query = `
+      SELECT
+        id,
+        name,
+        code,
+        priority
+      FROM subjectmaster
+      WHERE status = 1
+      ORDER BY priority ASC
+    `;
+    const result = await this.dataSource.query(query);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
   async getRegionList() {
     const query = `
       SELECT
@@ -175,7 +193,7 @@ export class UsersService {
     };
   }
 
-  async getTeacherList(page: number, limit: number, search?: string) {
+  async getTeacherList(page: number, limit: number, search?: string, regionId?: string, schoolId?: string) {
     const offset = (page - 1) * limit;
     let query = `
       SELECT
@@ -188,16 +206,28 @@ export class UsersService {
         tm.udiseCode,
         tm.gender,
         tm.address,
-        sm.schoolName
+        sm.schoolName,
+        sm.regionId,
+        rm.name as regionName,
+        tm.schoolId
       FROM teachermaster tm
       INNER JOIN usermaster u ON u.id = tm.userId
       LEFT JOIN schoolmaster sm ON sm.id = tm.schoolId
+      LEFT JOIN regionmaster rm ON rm.id = sm.regionId
       WHERE u.status = 1
     `;
     const params: any[] = [];
     if (search) {
       query += ` AND (u.firstName LIKE ? OR u.lastName LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`);
+    }
+    if (regionId) {
+      query += ` AND sm.regionId = ?`;
+      params.push(regionId);
+    }
+    if (schoolId) {
+      query += ` AND tm.schoolId = ?`;
+      params.push(schoolId);
     }
     query += ` ORDER BY u.firstName ASC LIMIT ? OFFSET ?`;
     params.push(Number(limit), Number(offset));
@@ -209,12 +239,21 @@ export class UsersService {
       SELECT COUNT(*) as total
       FROM teachermaster tm
       INNER JOIN usermaster u ON u.id = tm.userId
+      LEFT JOIN schoolmaster sm ON sm.id = tm.schoolId
       WHERE u.status = 1
     `;
     const countParams: any[] = [];
     if (search) {
       countQuery += ` AND (u.firstName LIKE ? OR u.lastName LIKE ?)`;
       countParams.push(`%${search}%`, `%${search}%`);
+    }
+    if (regionId) {
+      countQuery += ` AND sm.regionId = ?`;
+      countParams.push(regionId);
+    }
+    if (schoolId) {
+      countQuery += ` AND tm.schoolId = ?`;
+      countParams.push(schoolId);
     }
     const countResult = await this.dataSource.query(countQuery, countParams);
 

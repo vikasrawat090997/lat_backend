@@ -34,6 +34,12 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('subjects')
+  async getSubjectList() {
+    return this.usersService.getSubjectList();
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('regions')
   async getRegionList() {
     return this.usersService.getRegionList();
@@ -54,12 +60,16 @@ export class UsersController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'regionId', required: false, type: String })
+  @ApiQuery({ name: 'schoolId', required: false, type: String })
   async getTeacherList(
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
+    @Query('regionId') regionId?: string,
+    @Query('schoolId') schoolId?: string,
   ) {
-    return this.usersService.getTeacherList(Number(page), Number(limit), search);
+    return this.usersService.getTeacherList(Number(page), Number(limit), search, regionId, schoolId);
   }
 
   @UseGuards(JwtAuthGuard)
