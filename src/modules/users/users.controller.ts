@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpCode, Patch, Get, Param, UseGuards, Query, UseInterceptors, UploadedFile, BadRequestException, Req } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, Patch, Get, Param, UseGuards, Query, UseInterceptors, UploadedFile, BadRequestException, Req, ValidationPipe, UsePipes } from '@nestjs/common';
 import { ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
@@ -8,6 +8,8 @@ import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../auth/access-control/jwt-auth.guard';
+import { GetCompetenciesDto } from './dto/get-competencies.dto';
+import { GenerateQuestionsDto } from './dto/generate-questions.dto';
 
 @Controller('')
 export class UsersController {
@@ -179,6 +181,17 @@ export class UsersController {
     @Body('status') status: number,
   ) {
     return this.usersService.toggleStudentStatus(userId, status);
+  }
+
+  @Post('competencies-list')
+  async getCompetenciesList(@Body() dto: GetCompetenciesDto) {
+    return await this.usersService.fetchCompetencies(dto);
+  }
+
+  @Post('generate-batch')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async generateBatchQuestions(@Body() dto: GenerateQuestionsDto) {
+    return await this.usersService.processBatchGeneration(dto);
   }
 }
 

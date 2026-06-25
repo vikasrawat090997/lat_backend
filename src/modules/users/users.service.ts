@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -15,13 +16,17 @@ import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import { GoogleGenAI } from '@google/genai';
+import { GenerateQuestionsDto } from './dto/generate-questions.dto';
 
 @Injectable()
 export class UsersService {
+  private aiClient: GoogleGenAI;
   constructor(
     private readonly jwtService: JwtService,
     private readonly dataSource: DataSource,
-  ) { }
+
+  ) { this.aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); }
 
   async login(dto: LoginDto) {
     const query = `
@@ -796,6 +801,317 @@ export class UsersService {
       if (!queryRunner.isReleased) {
         await queryRunner.release();
       }
+    }
+  }
+
+  private readonly evsKeywords = [
+    'family',
+    'home',
+    'neighbourhood',
+    'community',
+    'plant',
+    'tree',
+    'flower',
+    'leaf',
+    'fruit',
+    'animal',
+    'bird',
+    'insect',
+    'habitat',
+    'water',
+    'air',
+    'weather',
+    'season',
+    'food',
+    'health',
+    'hygiene',
+    'cleanliness',
+    'transport',
+    'road safety',
+    'environment',
+    'nature',
+    'surroundings',
+    'recycling',
+    'waste',
+    'conservation'];
+  async fetchCompetencies(dto: {
+    gradeId: number;
+    subjectId: number;
+    term: string;
+  }) {
+    let targetGradeId = Number(dto.gradeId);
+    let isEvsFallback = false;
+
+    // Term 1 logic
+    if (dto.term === 'Term 1') {
+      if (targetGradeId === 6) targetGradeId = 5;
+      else if (targetGradeId === 9) targetGradeId = 8;
+      else if (targetGradeId === 12) targetGradeId = 11;
+    }
+
+    // EVS fallback condition
+    if (
+      Number(dto.gradeId) === 6 &&
+      Number(dto.subjectId) === 6 &&
+      dto.term === 'Term 1'
+    ) {
+      isEvsFallback = true;
+    }
+
+    let rows: any[] = [];
+
+    if (isEvsFallback) {
+      const query = `
+      SELECT 
+        c.id,
+        c.name,
+        c.description
+      FROM competencymaster c
+      WHERE c.gradeId = ?
+        AND c.status = 1
+    `;
+
+      rows = await this.dataSource.query(query, [targetGradeId]);
+      console.log(rows)
+      if (!Array.isArray(rows)) {
+        rows = [];
+      }
+
+      rows = rows.filter((comp) => {
+        const textToSearch = `${comp.name || ''} ${comp.description || ''
+          }`.toLowerCase();
+
+        return this.evsKeywords.some((keyword) =>
+          textToSearch.includes(keyword.toLowerCase()),
+        );
+      });
+
+      if (rows.length === 0) {
+        throw new NotFoundException(
+          `No valid EVS fallback competencies matched the environmental criteria for Grade ${dto.gradeId}, Subject ID ${dto.subjectId}, ${dto.term}`,
+        );
+      }
+    } else {
+      const query = `
+      SELECT
+        c.id,
+        c.name,
+        c.description
+      FROM competencymaster c
+      INNER JOIN subjectcompetencymapping sc
+        ON c.id = sc.competencyId
+      WHERE c.gradeId = ?
+        AND sc.subjectId = ?
+        AND c.status = 1
+        AND sc.status = 1
+    `;
+
+      rows = await this.dataSource.query(query, [
+        targetGradeId,
+        dto.subjectId,
+      ]);
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        throw new NotFoundException(
+          `No competencies found matching Grade ${dto.gradeId}, Subject ID ${dto.subjectId}, ${dto.term}`,
+        );
+      }
+    }
+
+    return {
+      success: true,
+      termApplied: dto.term,
+      logicalSyllabusGradeId: targetGradeId,
+      competencyCount: rows.length,
+      data: rows,
+    };
+  }
+
+  async processBatchGeneration(dto: GenerateQuestionsDto) {
+    // Step A: Fetch available competencies based on your grade, subject, and term rules
+    const competencyData = await this.fetchCompetencies({
+      gradeId: dto.displayGradeId,
+      subjectId: dto.subjectId,
+      term: dto.term
+    });
+
+    let targetCompetencies = [];
+
+    // Condition Assessment: If array is empty [], assign ALL fetched competencies
+    if (!dto.competencyIds || dto.competencyIds.length === 0) {
+      targetCompetencies = competencyData.data;
+    } else {
+      // Otherwise, filter down to match only the IDs provided in the array
+      targetCompetencies = competencyData.data.filter(c =>
+        dto.competencyIds.includes(Number(c.id))
+      );
+
+      if (targetCompetencies.length === 0) {
+        throw new BadRequestException(
+          `None of the provided Competency IDs match this Grade/Term setup.`
+        );
+      }
+    }
+
+    const successfullyGeneratedQuestions = [];
+
+    // Step B: Loop over evaluated targeting arrays
+    for (const comp of targetCompetencies) {
+      try {
+        const cleanPrompt = `
+          You are an elite academic assessment designer specializing in Competency-Based Education (CBE).
+          Generate exactly ONE practical application multiple-choice question targeting this competency.
+
+          PARAMETERS:
+          - Target Student Grade: Grade ${dto.displayGradeId}
+          - Academic Skill Level: Grade ${competencyData.logicalSyllabusGradeId}
+          - Competency Focus: "${comp.name}"
+
+          DESIGN RULES:
+          1. Formulate a situational scenario forcing application over memorization.
+          2. The question and individual options text MUST contain semantic HTML tags like <p>, <b>.
+          3. Question context or distinct options can support images. If an element requires a visual representation to be solvable, flag "requires_image" to true and populate "image_prompt". Otherwise, declare false and null.
+
+          OUTPUT FORMAT:
+          Return strictly a single raw JSON object matching this schema blueprint:
+          {
+            "question_text": "HTML_STRING",
+            "requires_image": true_or_false,
+            "image_prompt": "PROMPT_OR_NULL",
+            "correct_option": "A_B_C_OR_D",
+            "options": [
+              { "id": "A", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+              { "id": "B", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+              { "id": "C", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+              { "id": "D", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" }
+            ]
+          }
+        `;
+
+        const aiResponse = await this.aiClient.models.generateContent({
+          model: 'gemini-1.5-flash', // Passed directly
+          contents: [{ role: 'user', parts: [{ text: cleanPrompt }] }],
+          config: { // Renamed from generationConfig to config
+            temperature: 0.2,
+            maxOutputTokens: 1000
+          }
+        });
+
+        const textOutput = aiResponse.text ? aiResponse.text.trim() : '';
+        if (!textOutput) continue;
+        const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
+        const parsedData = JSON.parse(cleanedJsonString);
+
+        // Atomic multi-table write sequence managed via TypeORM transaction utilities
+        const savedRecord = await this.saveQuestionToDatabase(
+          dto.displayGradeId,
+          competencyData.logicalSyllabusGradeId,
+          dto.subjectId,
+          comp.id,
+          parsedData
+        );
+
+        successfullyGeneratedQuestions.push(savedRecord);
+      } catch (error) {
+        console.error(`Failed question processing loop for Competency ID ${comp.id}:`, error.message);
+      }
+    }
+
+    return {
+      success: true,
+      totalProcessedCompetencies: targetCompetencies.length,
+      totalSuccessfullySaved: successfullyGeneratedQuestions.length,
+      questions: successfullyGeneratedQuestions
+    };
+  }
+
+  private async saveQuestionToDatabase(
+    displayGradeId: number,
+    syllabusGradeId: number,
+    subjectId: number,
+    competencyId: number,
+    aiData: any // Handles dynamic structural mapping implicitly without strict interfaces
+  ) {
+    // 1. Initialize QueryRunner to guarantee absolute transactional safety
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Establish context-level image tracking properties
+      const qImageStatus = aiData.requires_image ? 'pending' : 'none';
+
+      // 2. Insert primary record parameters directly into the 'questions' table
+      const insertQuestionSql = `
+        INSERT INTO questions 
+        (display_grade, syllabus_grade, subject_id, competency_targeted_id, question_text, requires_image, image_prompt, image_status) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      const questionInsertResult = await queryRunner.query(insertQuestionSql, [
+        displayGradeId,
+        syllabusGradeId,
+        subjectId,
+        competencyId,
+        aiData.question_text,
+        aiData.requires_image ? 1 : 0,
+        aiData.image_prompt,
+        qImageStatus
+      ]);
+
+      // Retrieve the auto-incremented primary ID generated for the newly created question row
+      const questionId = questionInsertResult.insertId;
+
+      // 3. Prepare the query layout statement for multiple choice option mapping rows
+      const insertOptionSql = `
+        INSERT INTO question_options 
+        (question_id, option_letter, option_text, isCorrect, requires_image, image_prompt, image_status) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      // Loop across each element within the choices array provided by Gemini
+      for (const opt of aiData.options) {
+        // Dynamically compute the binary state flag directly per row map index
+        const isThisOptionCorrect = opt.id === aiData.correct_option ? 1 : 0;
+        const optImageStatus = opt.requires_image ? 'pending' : 'none';
+
+        await queryRunner.query(insertOptionSql, [
+          questionId,
+          opt.id,
+          opt.text,
+          isThisOptionCorrect,      // 🎯 Persists true (1) if it matches the correct answer letter
+          opt.requires_image ? 1 : 0,
+          opt.image_prompt,
+          optImageStatus            // 🖼️ Sets 'pending' if this specific option needs an image generated
+        ]);
+      }
+
+      // 4. Commit all updates atomically if every single row write finishes successfully
+      await queryRunner.commitTransaction();
+
+      // Return unified payload shape back to the orchestrator array loop
+      return {
+        id: questionId,
+        displayGrade: displayGradeId,
+        syllabusGrade: syllabusGradeId,
+        subjectId: subjectId,
+        competencyId: competencyId,
+        question_text: aiData.question_text,
+        image_status: qImageStatus,
+        options: aiData.options.map((o: any) => ({
+          letter: o.id,
+          text: o.text,
+          isCorrect: o.id === aiData.correct_option,
+          image_status: o.requires_image ? 'pending' : 'none'
+        }))
+      };
+
+    } catch (dbError) {
+      // 5. Instantly roll back every single database change if any row execution crashes
+      await queryRunner.rollbackTransaction();
+      throw dbError;
+    } finally {
+      // 6. Always release connection properties back into the baseline thread pool manager
+      await queryRunner.release();
     }
   }
 }

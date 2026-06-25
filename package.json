@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@casl/ability": "^6.7.3",
+    "@google/genai": "^2.10.0",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.2",
