@@ -16,17 +16,21 @@ import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GenerateQuestionsDto } from './dto/generate-questions.dto';
 
 @Injectable()
 export class UsersService {
-  private aiClient: GoogleGenAI;
+  private aiClient: GoogleGenerativeAI;
   constructor(
     private readonly jwtService: JwtService,
     private readonly dataSource: DataSource,
 
-  ) { this.aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); }
+  ) {
+    this.aiClient = new GoogleGenerativeAI(
+      process.env.GEMINI_API_KEY!,
+    );
+  }
 
   async login(dto: LoginDto) {
     const query = `
@@ -927,6 +931,104 @@ export class UsersService {
     };
   }
 
+  // async processBatchGeneration(dto: GenerateQuestionsDto) {
+  //   // Step A: Fetch available competencies based on your grade, subject, and term rules
+  //   const competencyData = await this.fetchCompetencies({
+  //     gradeId: dto.displayGradeId,
+  //     subjectId: dto.subjectId,
+  //     term: dto.term
+  //   });
+
+  //   let targetCompetencies = [];
+
+  //   // Condition Assessment: If array is empty [], assign ALL fetched competencies
+  //   if (!dto.competencyIds || dto.competencyIds.length === 0) {
+  //     targetCompetencies = competencyData.data;
+  //   } else {
+  //     // Otherwise, filter down to match only the IDs provided in the array
+  //     targetCompetencies = competencyData.data.filter(c =>
+  //       dto.competencyIds.includes(Number(c.id))
+  //     );
+
+  //     if (targetCompetencies.length === 0) {
+  //       throw new BadRequestException(
+  //         `None of the provided Competency IDs match this Grade/Term setup.`
+  //       );
+  //     }
+  //   }
+
+  //   const successfullyGeneratedQuestions = [];
+
+  //   // Step B: Loop over evaluated targeting arrays
+  //   for (const comp of targetCompetencies) {
+  //     try {
+  //       const cleanPrompt = `
+  //         You are an elite academic assessment designer specializing in Competency-Based Education (CBE).
+  //         Generate exactly ONE practical application multiple-choice question targeting this competency.
+
+  //         PARAMETERS:
+  //         - Target Student Grade: Grade ${dto.displayGradeId}
+  //         - Academic Skill Level: Grade ${competencyData.logicalSyllabusGradeId}
+  //         - Competency Focus: "${comp.name}"
+
+  //         DESIGN RULES:
+  //         1. Formulate a situational scenario forcing application over memorization.
+  //         2. The question and individual options text MUST contain semantic HTML tags like <p>, <b>.
+  //         3. Question context or distinct options can support images. If an element requires a visual representation to be solvable, flag "requires_image" to true and populate "image_prompt". Otherwise, declare false and null.
+
+  //         OUTPUT FORMAT:
+  //         Return strictly a single raw JSON object matching this schema blueprint:
+  //         {
+  //           "question_text": "HTML_STRING",
+  //           "requires_image": true_or_false,
+  //           "image_prompt": "PROMPT_OR_NULL",
+  //           "correct_option": "A_B_C_OR_D",
+  //           "options": [
+  //             { "id": "A", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+  //             { "id": "B", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+  //             { "id": "C", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+  //             { "id": "D", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" }
+  //           ]
+  //         }
+  //       `;
+
+  //       const aiResponse = await this.aiClient.models.generateContent({
+  //         model: 'gemini-1.5-flash', // Passed directly
+  //         contents: [{ role: 'user', parts: [{ text: cleanPrompt }] }],
+  //         config: { // Renamed from generationConfig to config
+  //           temperature: 0.2,
+  //           maxOutputTokens: 1000
+  //         }
+  //       });
+
+  //       const textOutput = aiResponse.text ? aiResponse.text.trim() : '';
+  //       if (!textOutput) continue;
+  //       const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
+  //       const parsedData = JSON.parse(cleanedJsonString);
+
+  //       // Atomic multi-table write sequence managed via TypeORM transaction utilities
+  //       const savedRecord = await this.saveQuestionToDatabase(
+  //         dto.displayGradeId,
+  //         competencyData.logicalSyllabusGradeId,
+  //         dto.subjectId,
+  //         comp.id,
+  //         parsedData
+  //       );
+
+  //       successfullyGeneratedQuestions.push(savedRecord);
+  //     } catch (error) {
+  //       console.error(`Failed question processing loop for Competency ID ${comp.id}:`, error.message);
+  //     }
+  //   }
+
+  //   return {
+  //     success: true,
+  //     totalProcessedCompetencies: targetCompetencies.length,
+  //     totalSuccessfullySaved: successfullyGeneratedQuestions.length,
+  //     questions: successfullyGeneratedQuestions
+  //   };
+  // }
+
   async processBatchGeneration(dto: GenerateQuestionsDto) {
     // Step A: Fetch available competencies based on your grade, subject, and term rules
     const competencyData = await this.fetchCompetencies({
@@ -937,89 +1039,277 @@ export class UsersService {
 
     let targetCompetencies = [];
 
-    // Condition Assessment: If array is empty [], assign ALL fetched competencies
     if (!dto.competencyIds || dto.competencyIds.length === 0) {
       targetCompetencies = competencyData.data;
     } else {
-      // Otherwise, filter down to match only the IDs provided in the array
       targetCompetencies = competencyData.data.filter(c =>
         dto.competencyIds.includes(Number(c.id))
       );
-
       if (targetCompetencies.length === 0) {
-        throw new BadRequestException(
-          `None of the provided Competency IDs match this Grade/Term setup.`
-        );
+        throw new BadRequestException(`None of the provided Competency IDs match this context.`);
       }
     }
 
+    // 🎯 Step B: Look up targeted question generation counts from configuration database mapping table
+    const configQuery = `
+      SELECT mandatory_question_count as count FROM grade_subject_question_mapping where grade_id = ? and subject_id = ?;
+    `;
+    const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
+
+    // Fallback to 1 question per competency if no explicit mapping configuration row exists
+    let targetedGenCount = (configResult && configResult.length > 0)
+      ? Number(configResult[0].count)
+      : 1;
+
+    const model = this.aiClient.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+    });
     const successfullyGeneratedQuestions = [];
-
-    // Step B: Loop over evaluated targeting arrays
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    // Step C: Loop over evaluated targeting competencies
     for (const comp of targetCompetencies) {
-      try {
-        const cleanPrompt = `
-          You are an elite academic assessment designer specializing in Competency-Based Education (CBE).
-          Generate exactly ONE practical application multiple-choice question targeting this competency.
+      let remainingQuestionsToProcess = targetedGenCount;
 
-          PARAMETERS:
-          - Target Student Grade: Grade ${dto.displayGradeId}
-          - Academic Skill Level: Grade ${competencyData.logicalSyllabusGradeId}
-          - Competency Focus: "${comp.name}"
+      // 🔄 Step D: Chunking logic loop (Limits requests to max 5 items per system prompt call)
+      while (remainingQuestionsToProcess > 0) {
+        const currentBatchSize = Math.min(remainingQuestionsToProcess, 5);
+        remainingQuestionsToProcess -= currentBatchSize;
 
-          DESIGN RULES:
-          1. Formulate a situational scenario forcing application over memorization.
-          2. The question and individual options text MUST contain semantic HTML tags like <p>, <b>.
-          3. Question context or distinct options can support images. If an element requires a visual representation to be solvable, flag "requires_image" to true and populate "image_prompt". Otherwise, declare false and null.
+        try {
+          // const cleanPrompt = `
+          //   You are an elite academic assessment designer specializing in Competency-Based Education (CBE).
+          //   Generate exactly ${currentBatchSize} unique practical application multiple-choice questions targeting this specific competency.
 
-          OUTPUT FORMAT:
-          Return strictly a single raw JSON object matching this schema blueprint:
-          {
-            "question_text": "HTML_STRING",
-            "requires_image": true_or_false,
-            "image_prompt": "PROMPT_OR_NULL",
-            "correct_option": "A_B_C_OR_D",
-            "options": [
-              { "id": "A", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
-              { "id": "B", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
-              { "id": "C", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
-              { "id": "D", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" }
-            ]
+          //   PARAMETERS:
+          //   - Target Student Grade: Grade ${dto.displayGradeId}
+          //   - Academic Skill Level: Grade ${competencyData.logicalSyllabusGradeId}
+          //   - Competency Focus: "${comp.name}"
+
+          //   DESIGN RULES:
+          //   1. Formulate distinct, situational scenarios forcing application over memorization.
+          //   2. The question and individual options text MUST contain semantic HTML tags like <p>, <b>.
+          //   3. Elements can support images. If a visual component is mandatory to solve a question, flag "requires_image" to true and populate "image_prompt". Otherwise, declare false and null.
+
+          //   OUTPUT FORMAT:
+          //   Return strictly a raw JSON array containing exactly ${currentBatchSize} JSON items. Do NOT wrap it inside markdown blocks and do NOT add text commentary.
+          //   The structure must exactly match this blueprint format:
+          //   [
+          //     {
+          //       "question_text": "HTML_STRING",
+          //       "requires_image": true_or_false,
+          //       "image_prompt": "PROMPT_OR_NULL",
+          //       "correct_option": "A_B_C_OR_D",
+          //       "options": [
+          //         { "id": "A", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+          //         { "id": "B", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+          //         { "id": "C", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
+          //         { "id": "D", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" }
+          //       ]
+          //     }
+          //   ]
+          // `;
+
+          //           const cleanPrompt = `
+          // Generate ${currentBatchSize} competency-based MCQs.
+
+          // Grade: ${dto.displayGradeId}
+          // Skill Level: ${competencyData.logicalSyllabusGradeId}
+          // Competency: ${comp.name}
+
+          // Rules:
+          // - Real-life application questions only.
+          // - Avoid memorization and direct textbook recall.
+          // - Use <p> and <b> HTML tags.
+          // - 4 options (A,B,C,D).
+          // - Exactly one correct answer.
+          // - Create image-based questions whenever visuals improve understanding (objects, plants, animals, maps, shapes, patterns, surroundings, activities, comparisons, observations).
+          // - If image needed:
+          //   "requires_image": true
+          //   and provide "image_prompt".
+          // - Otherwise:
+          //   "requires_image": false
+          //   and "image_prompt": null.
+          // - Return JSON only. No markdown.
+
+          // Format:
+          // [
+          //  {
+          //   "question_text":"",
+          //   "requires_image":true,
+          //   "image_prompt":required,
+          //   "correct_option":"A",
+          //   "options":[
+          //    {"id":"A","text":"","requires_image":false,"image_prompt":null},
+          //    {"id":"B","text":"","requires_image":false,"image_prompt":null},
+          //    {"id":"C","text":"","requires_image":false,"image_prompt":null},
+          //    {"id":"D","text":"","requires_image":false,"image_prompt":null}
+          //   ]
+          //  }
+          // ]
+          // `;
+
+          const cleanPrompt = `
+Generate ${currentBatchSize} competency-based MCQs.
+
+Grade: ${dto.displayGradeId}
+Skill Level: ${competencyData.logicalSyllabusGradeId}
+Competency: ${comp.name}
+
+Rules:
+- Real-life application questions only.
+- Avoid memorization and direct textbook recall.
+- Use <p> and <b> HTML tags.
+- Exactly 4 options (A,B,C,D).
+- Exactly 1 correct answer.
+
+IMAGE RULES:
+- Decide independently whether the QUESTION requires an image.
+- Decide independently whether any OPTION requires an image.
+- Images should be used when they improve assessment quality.
+- Use images for:
+  plants, animals, objects, shapes, maps, patterns,
+  measurements, comparisons, observations,
+  surroundings, activities, community places,
+  weather, transport and real-life situations.
+
+QUESTION IMAGE:
+- If question requires image:
+  "requires_image": true
+  and generate detailed "image_prompt".
+- Otherwise:
+  "requires_image": false
+  and "image_prompt": null.
+
+OPTION IMAGE:
+- Each option may also require an image.
+- If option requires image:
+  "requires_image": true
+  and generate detailed "image_prompt".
+- Otherwise:
+  "requires_image": false
+  and "image_prompt": null.
+
+Return JSON only.
+No markdown.
+No explanation.
+
+Format:
+[
+  {
+    "question_text":"",
+    "requires_image":true,
+    "image_prompt":"",
+
+    "correct_option":"A",
+
+    "options":[
+      {
+        "id":"A",
+        "text":"",
+        "requires_image":true,
+        "image_prompt":""
+      },
+      {
+        "id":"B",
+        "text":"",
+        "requires_image":false,
+        "image_prompt":null
+      },
+      {
+        "id":"C",
+        "text":"",
+        "requires_image":false,
+        "image_prompt":null
+      },
+      {
+        "id":"D",
+        "text":"",
+        "requires_image":false,
+        "image_prompt":null
+      }
+    ]
+  }
+]
+`;
+          console.log(cleanPrompt);
+          const aiResponse = await model.generateContent(cleanPrompt);
+
+
+          const textOutput = aiResponse.response.text();
+          console.log(textOutput);
+          // return
+          if (!textOutput) continue;
+
+          const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
+          const parsedQuestionsArray = JSON.parse(cleanedJsonString);
+
+          // Iterate and save every generated item returned in the sub-batch array
+          if (Array.isArray(parsedQuestionsArray)) {
+            // for (const singleQuestionData of parsedQuestionsArray) {
+            //   const savedRecord = await this.saveQuestionToDatabase(
+            //     dto.displayGradeId,
+            //     competencyData.logicalSyllabusGradeId,
+            //     dto.subjectId,
+            //     comp.id,
+            //     singleQuestionData
+            //   );
+            //   successfullyGeneratedQuestions.push(savedRecord);
+            // }
+
+            for (const comp of targetCompetencies) {
+              try {
+
+                const aiResponse = await model.generateContent(cleanPrompt);
+
+                const textOutput = aiResponse.response.text();
+
+                let cleanedJsonString = textOutput
+                  .replace(/```json/g, '')
+                  .replace(/```/g, '')
+                  .trim();
+
+                const parsedData = JSON.parse(cleanedJsonString);
+
+                const questions = Array.isArray(parsedData)
+                  ? parsedData
+                  : [parsedData];
+
+                for (const question of questions) {
+                  const savedRecord =
+                    await this.saveQuestionToDatabase(
+                      dto.displayGradeId,
+                      competencyData.logicalSyllabusGradeId,
+                      dto.subjectId,
+                      comp.id,
+                      question,
+                    );
+
+                  successfullyGeneratedQuestions.push(savedRecord);
+                }
+
+                await delay(5000);
+
+              } catch (error) {
+                console.error(
+                  `Competency ${comp.id} failed`,
+                  error,
+                );
+              }
+            }
           }
-        `;
 
-        const aiResponse = await this.aiClient.models.generateContent({
-          model: 'gemini-1.5-flash', // Passed directly
-          contents: [{ role: 'user', parts: [{ text: cleanPrompt }] }],
-          config: { // Renamed from generationConfig to config
-            temperature: 0.2,
-            maxOutputTokens: 1000
-          }
-        });
 
-        const textOutput = aiResponse.text ? aiResponse.text.trim() : '';
-        if (!textOutput) continue;
-        const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
-        const parsedData = JSON.parse(cleanedJsonString);
-
-        // Atomic multi-table write sequence managed via TypeORM transaction utilities
-        const savedRecord = await this.saveQuestionToDatabase(
-          dto.displayGradeId,
-          competencyData.logicalSyllabusGradeId,
-          dto.subjectId,
-          comp.id,
-          parsedData
-        );
-
-        successfullyGeneratedQuestions.push(savedRecord);
-      } catch (error) {
-        console.error(`Failed question processing loop for Competency ID ${comp.id}:`, error.message);
+        } catch (error) {
+          console.error(`Failed question sub-batch processing for Competency ID ${comp.id}:`, error.message);
+          // If a sub-batch fails, break out or continue based on your error policy
+        }
       }
     }
 
     return {
       success: true,
-      totalProcessedCompetencies: targetCompetencies.length,
+      totalCompetenciesProcessed: targetCompetencies.length,
+      targetQuestionsPerCompetency: targetedGenCount,
       totalSuccessfullySaved: successfullyGeneratedQuestions.length,
       questions: successfullyGeneratedQuestions
     };
