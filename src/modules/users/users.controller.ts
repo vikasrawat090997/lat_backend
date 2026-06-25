@@ -1,9 +1,11 @@
-import { Controller, Post, Body, HttpCode, Patch, Get, Param, UseGuards, Query, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, Patch, Get, Param, UseGuards, Query, UseInterceptors, UploadedFile, BadRequestException, Req } from '@nestjs/common';
 import { ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
+import { CreateStudentDto } from './dto/create-student.dto';
+import { UpdateStudentDto } from './dto/update-student.dto';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../auth/access-control/jwt-auth.guard';
 
@@ -105,6 +107,68 @@ export class UsersController {
     @Body('status') status: number,
   ) {
     return this.usersService.toggleTeacherStatus(userId, status);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('students')
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  async getStudentList(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Query('search') search?: string,
+  ) {
+    return this.usersService.getStudentList(Number(page), Number(limit), search);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('students')
+  async createStudent(@Req() req: any, @Body() dto: CreateStudentDto) {
+    const createdBy = req.user?.userId || null;
+    return this.usersService.createStudent(dto, createdBy);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('students/bulk')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  async bulkUploadStudents(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    const createdBy = req.user?.userId || null;
+    return this.usersService.bulkUploadStudents(file, createdBy);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('students/:userId')
+  async updateStudent(
+    @Param('userId') userId: number,
+    @Body() dto: UpdateStudentDto,
+  ) {
+    return this.usersService.updateStudent(userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('students/:userId/status')
+  @ApiBody({ schema: { type: 'object', properties: { status: { type: 'number', example: 1 } } } })
+  async toggleStudentStatus(
+    @Param('userId') userId: number,
+    @Body('status') status: number,
+  ) {
+    return this.usersService.toggleStudentStatus(userId, status);
   }
 }
 

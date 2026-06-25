@@ -13,6 +13,8 @@ import * as exceljs from 'exceljs';
 import { LoginDto } from './dto/login.dto';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
+import { CreateStudentDto } from './dto/create-student.dto';
+import { UpdateStudentDto } from './dto/update-student.dto';
 
 @Injectable()
 export class UsersService {
@@ -302,6 +304,12 @@ export class UsersService {
       try {
         const getVal = (val: any) => {
           if (!val) return '';
+          if (val instanceof Date) {
+            const dd = String(val.getDate()).padStart(2, '0');
+            const mm = String(val.getMonth() + 1).padStart(2, '0');
+            const yyyy = val.getFullYear();
+            return `${dd}-${mm}-${yyyy}`;
+          }
           if (typeof val === 'object') {
             return (val.text || val.hyperlink || '').toString();
           }
@@ -375,7 +383,7 @@ export class UsersService {
         if (address !== undefined) { updateQuery += `address = ?, `; params.push(address); }
         if (gradeId !== undefined) { updateQuery += `gradeId = ?, `; params.push(gradeId); }
         if (subjectId !== undefined) { updateQuery += `subjectId = ?, `; params.push(subjectId); }
-        
+
         if (udisecode !== undefined) {
           const schoolResult = await queryRunner.query(
             `SELECT id FROM schoolmaster WHERE udiseCode = ? AND status = 1 LIMIT 1`,
@@ -439,6 +447,306 @@ export class UsersService {
       return {
         success: true,
         message: `Teacher status updated successfully`,
+      };
+    } catch (error) {
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+      throw error;
+    } finally {
+      if (!queryRunner.isReleased) {
+        await queryRunner.release();
+      }
+    }
+  }
+
+  async getStudentList(page: number, limit: number, search?: string) {
+    const offset = (page - 1) * limit;
+    let query = `
+      SELECT
+        u.id as userId,
+        u.firstName,
+        u.lastName,
+        u.email,
+        u.mobileNo as parentMobile,
+        sm.rollNo,
+        sm.gradeId,
+        sm.section,
+        sm.udiseCode,
+        sm.fatherName,
+        sm.motherName,
+        sm.gender,
+        sm.dob,
+        sm.address, u.status
+      FROM studentmaster sm
+      INNER JOIN usermaster u ON u.id = sm.userId
+      WHERE u.status = 1
+    `;
+    const params: any[] = [];
+    if (search) {
+      query += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR sm.fatherName LIKE ? OR sm.motherName LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    query += ` ORDER BY u.firstName ASC LIMIT ? OFFSET ?`;
+    params.push(Number(limit), Number(offset));
+
+    const result = await this.dataSource.query(query, params);
+
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM studentmaster sm
+      INNER JOIN usermaster u ON u.id = sm.userId
+      WHERE u.status = 1
+    `;
+    const countParams: any[] = [];
+    if (search) {
+      countQuery += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR sm.fatherName LIKE ? OR sm.motherName LIKE ?)`;
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const countResult = await this.dataSource.query(countQuery, countParams);
+
+    return {
+      success: true,
+      data: result,
+      total: Number(countResult[0].total),
+      page: Number(page),
+      limit: Number(limit),
+    };
+  }
+
+  async createStudent(dto: CreateStudentDto, createdBy: number | null) {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const { firstName, lastName, parentMobile, email, rollNo, gradeId, section, udisecode, fatherName, motherName, gender, dob, address } = dto;
+
+      const first2 = (firstName || '').substring(0, 2).toUpperCase();
+      const mother2 = (motherName || '').substring(0, 2).toUpperCase();
+      const father2 = (fatherName || '').substring(0, 2).toUpperCase();
+
+      let dobClean = (dob || '').replace(/[-/]/g, '');
+      let dobDDMM = '0101';
+      let dobDbFormat = null;
+      if (dobClean.length >= 8) {
+        dobDDMM = dobClean.substring(0, 4);
+        const dd = dobClean.substring(0, 2);
+        const mm = dobClean.substring(2, 4);
+        const yyyy = dobClean.substring(4, 8);
+        dobDbFormat = `${yyyy}-${mm}-${dd}`;
+      }
+
+      const username = `${first2}${mother2}${father2}${dobDDMM}`;
+      const last4Mobile = (parentMobile || '').slice(-4);
+      const rawPassword = `${first2}${mother2}${father2}${last4Mobile}`;
+      const password = await bcrypt.hash(rawPassword, 10);
+
+      const userInsertResult = await queryRunner.query(
+        `INSERT INTO usermaster (roleId, username, firstName, lastName, email, mobileNo, password, status, createdBy)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [3, username, firstName, lastName, email || null, parentMobile, password, 1, createdBy]
+      );
+      const userId = userInsertResult.insertId;
+
+      await queryRunner.query(
+        `INSERT INTO studentmaster (userId, rollNo, gradeId, section, udiseCode, fatherName, motherName, gender, dob, address, createdBy, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userId, rollNo || null, gradeId, section || null, udisecode, fatherName || null, motherName || null, gender || null, dobDbFormat, address || null, createdBy, 1]
+      );
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        message: 'Student created successfully',
+      };
+    } catch (error) {
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+      throw error;
+    } finally {
+      if (!queryRunner.isReleased) {
+        await queryRunner.release();
+      }
+    }
+  }
+
+  async bulkUploadStudents(file: Express.Multer.File, createdBy: number | null) {
+    const workbook = new exceljs.Workbook();
+    await workbook.xlsx.load(file.buffer as any);
+    const worksheet = workbook.worksheets[0];
+
+    const results = {
+      successCount: 0,
+      failedCount: 0,
+      errors: []
+    };
+
+    let isFirstRow = true;
+    for (let i = 1; i <= worksheet.rowCount; i++) {
+      const row = worksheet.getRow(i);
+      if (isFirstRow) {
+        isFirstRow = false;
+        continue;
+      }
+
+      const rowValues = row.values as any[];
+      if (!rowValues || rowValues.length === 0) continue;
+
+      try {
+        const getVal = (val: any) => {
+          if (!val) return '';
+          if (val instanceof Date) {
+            const dd = String(val.getDate()).padStart(2, '0');
+            const mm = String(val.getMonth() + 1).padStart(2, '0');
+            const yyyy = val.getFullYear();
+            return `${dd}-${mm}-${yyyy}`;
+          }
+          if (typeof val === 'object') {
+            return (val.text || val.hyperlink || '').toString();
+          }
+          return val.toString();
+        };
+
+        const dto = new CreateStudentDto();
+        dto.firstName = getVal(rowValues[1]);
+        dto.lastName = getVal(rowValues[2]);
+        dto.parentMobile = getVal(rowValues[3]);
+        dto.email = getVal(rowValues[4]);
+        dto.rollNo = getVal(rowValues[5]);
+        dto.gradeId = Number(getVal(rowValues[6])) || 0;
+        dto.section = getVal(rowValues[7]);
+        dto.udisecode = getVal(rowValues[8]);
+        dto.fatherName = getVal(rowValues[9]);
+        dto.motherName = getVal(rowValues[10]);
+        dto.gender = getVal(rowValues[11]);
+        dto.dob = getVal(rowValues[12]);
+        dto.address = getVal(rowValues[13]);
+
+        if (!dto.firstName || !dto.parentMobile || !dto.udisecode || !dto.gradeId) {
+          throw new Error(`Missing required fields`);
+        }
+
+        await this.createStudent(dto, createdBy);
+        results.successCount++;
+      } catch (err) {
+        results.failedCount++;
+        results.errors.push(`Row ${i}: ${err.message}`);
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Bulk upload completed',
+      data: results
+    };
+  }
+
+  async updateStudent(userId: number, dto: UpdateStudentDto) {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const userCheck = await queryRunner.query(
+        `SELECT id FROM usermaster WHERE id = ? LIMIT 1`,
+        [userId]
+      );
+      if (!userCheck || userCheck.length === 0) {
+        throw new BadRequestException(`Student with user ID ${userId} not found`);
+      }
+
+      const { firstName, lastName, parentMobile, email, rollNo, gradeId, section, udisecode, fatherName, motherName, gender, dob, address } = dto;
+
+      if (firstName !== undefined || lastName !== undefined || email !== undefined || parentMobile !== undefined) {
+        let updateQuery = `UPDATE usermaster SET `;
+        const params: any[] = [];
+        if (firstName !== undefined) { updateQuery += `firstName = ?, `; params.push(firstName); }
+        if (lastName !== undefined) { updateQuery += `lastName = ?, `; params.push(lastName); }
+        if (email !== undefined) { updateQuery += `email = ?, `; params.push(email); }
+        if (parentMobile !== undefined) { updateQuery += `mobileNo = ?, `; params.push(parentMobile); }
+        updateQuery = updateQuery.slice(0, -2) + ` WHERE id = ?`;
+        params.push(userId);
+        await queryRunner.query(updateQuery, params);
+      }
+
+      if (rollNo !== undefined || gradeId !== undefined || section !== undefined || udisecode !== undefined || fatherName !== undefined || motherName !== undefined || gender !== undefined || dob !== undefined || address !== undefined) {
+        let updateQuery = `UPDATE studentmaster SET `;
+        const params: any[] = [];
+        if (rollNo !== undefined) { updateQuery += `rollNo = ?, `; params.push(rollNo); }
+        if (gradeId !== undefined) { updateQuery += `gradeId = ?, `; params.push(gradeId); }
+        if (section !== undefined) { updateQuery += `section = ?, `; params.push(section); }
+        if (udisecode !== undefined) { updateQuery += `udiseCode = ?, `; params.push(udisecode); }
+        if (fatherName !== undefined) { updateQuery += `fatherName = ?, `; params.push(fatherName); }
+        if (motherName !== undefined) { updateQuery += `motherName = ?, `; params.push(motherName); }
+        if (gender !== undefined) { updateQuery += `gender = ?, `; params.push(gender); }
+        if (address !== undefined) { updateQuery += `address = ?, `; params.push(address); }
+
+        if (dob !== undefined) {
+          let dobClean = (dob || '').replace(/[-/]/g, '');
+          let dobDbFormat = null;
+          if (dobClean.length >= 8) {
+            const dd = dobClean.substring(0, 2);
+            const mm = dobClean.substring(2, 4);
+            const yyyy = dobClean.substring(4, 8);
+            dobDbFormat = `${yyyy}-${mm}-${dd}`;
+          }
+          updateQuery += `dob = ?, `; params.push(dobDbFormat);
+        }
+
+        updateQuery = updateQuery.slice(0, -2) + ` WHERE userId = ?`;
+        params.push(userId);
+        await queryRunner.query(updateQuery, params);
+      }
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        message: 'Student updated successfully',
+      };
+    } catch (error) {
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction();
+      }
+      throw error;
+    } finally {
+      if (!queryRunner.isReleased) {
+        await queryRunner.release();
+      }
+    }
+  }
+
+  async toggleStudentStatus(userId: number, status: number) {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const userCheck = await queryRunner.query(
+        `SELECT id FROM usermaster WHERE id = ? LIMIT 1`,
+        [userId]
+      );
+      if (!userCheck || userCheck.length === 0) {
+        throw new BadRequestException(`Student with user ID ${userId} not found`);
+      }
+
+      await queryRunner.query(
+        `UPDATE usermaster SET status = ? WHERE id = ?`,
+        [status, userId]
+      );
+      await queryRunner.query(
+        `UPDATE studentmaster SET status = ? WHERE userId = ?`,
+        [status, userId]
+      );
+
+      await queryRunner.commitTransaction();
+
+      return {
+        success: true,
+        message: `Student status updated successfully`,
       };
     } catch (error) {
       if (queryRunner.isTransactionActive) {
