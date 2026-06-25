@@ -6,10 +6,8 @@ import { join } from 'path';
 import { envList } from './constants/constants';
 import { toBool } from './utils/utils';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
-import { RolesModule } from './modules/roles/roles.module';
 import { UsersModule } from './modules/users/users.module';
-import { MarketingExecutiveModule } from './modules/marketing-executive/marketing-executive.module';
-import { AdminModule } from './modules/admin/admin.module';
+
 
 @Module({
   imports: [
@@ -43,11 +41,8 @@ import { AdminModule } from './modules/admin/admin.module';
       logging: true,
       autoLoadEntities: true,
     }),
-    RolesModule,
     UsersModule,
-    MarketingExecutiveModule,
-    AdminModule,
   ],
   providers: [],
 })
-export class AppModule {}
+export class AppModule { }

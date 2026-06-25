@@ -2,20 +2,19 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
-import { UserMaster } from './entities/user.entity';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { AccessControlModule } from '../auth/access-control/access-control.module';
 import { JwtStrategy } from '../auth/access-control/jwt.strategy';
-import { RoleMaster } from '../roles/entities/role.entity';
 
 import { AuthService } from '../auth/access-control/AuthServiceAuthGuard';
 import { JwtDatabaseAuthGuard } from '../auth/access-control/JwtDatabaseAuthGuard';
+import { UserMaster } from './entities/user.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserMaster, RoleMaster]),
+    TypeOrmModule.forFeature([UserMaster]),
     PassportModule,
     ConfigModule.forRoot(),
     JwtModule.register({
@@ -31,4 +30,4 @@ import { JwtDatabaseAuthGuard } from '../auth/access-control/JwtDatabaseAuthGuar
   providers: [UsersService, JwtStrategy, AuthService, JwtDatabaseAuthGuard],
   exports: [UsersService],
 })
-export class UsersModule {}
+export class UsersModule { }

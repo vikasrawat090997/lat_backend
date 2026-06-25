@@ -3,63 +3,170 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { UserMaster } from './entities/user.entity';
 import { DataSource, In, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { RoleMaster } from '../roles/entities/role.entity';
+import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class UsersService {
   constructor(
-    @InjectRepository(UserMaster)
-    private readonly userRepository: Repository<UserMaster>,
     private readonly jwtService: JwtService,
-    @InjectRepository(RoleMaster)
-    private readonly roleMasterRepository: Repository<RoleMaster>,
-  ) {}
+    private readonly dataSource: DataSource,
+  ) { }
 
-  async login(userName: string, password: string) {
-    try {
-      const user: any = await this.userRepository
-        .createQueryBuilder('user')
-        .innerJoinAndSelect('user.role', 'rm')
-        .where('user.email = :userName OR user.phone = :userName', { userName })
-        .getOne();
-      if (!user) {
-        throw new HttpException('User Not Found', HttpStatus.NOT_FOUND);
-      }
-      if (user.status !== 1) {
-        throw new HttpException('Inactive user', HttpStatus.UNAUTHORIZED);
-      }
-      if (!user.password) {
-        throw new HttpException('Password not set', HttpStatus.UNAUTHORIZED);
-      }
+  async login(dto: LoginDto) {
+    const query = `
+      SELECT
+        u.id,
+        u.username,
+        u.firstName,
+        u.lastName,
+        u.email,
+        u.mobileNo,
+        u.password,
+        u.roleId,
+        r.name AS roleName
+      FROM usermaster u
+      INNER JOIN rolemaster r
+        ON r.id = u.roleId
+      WHERE u.username = ?
+      AND u.status = 1
+      LIMIT 1
+    `;
 
-      const passwordStatus = await bcrypt.compare(password, user.password);
-      if (!passwordStatus) {
-        throw new HttpException('Invalid Credentials', HttpStatus.UNAUTHORIZED);
-      }
+    const users = await this.dataSource.query(query, [
+      dto.username,
+    ]);
 
-      delete user.password;
-
-      const token = this.jwtService.sign({
-        userId: user.id,
-        email: user.email,
-        roleId: user.role.id,
-      });
-      return {
-        token: token,
-        Message: 'Login Successfully',
-        data: user,
-      };
-    } catch (err: any) {
-      if (err.status) {
-        throw err;
-      }
-      throw new HttpException(err, HttpStatus.BAD_REQUEST);
+    if (!users.length) {
+      throw new UnauthorizedException(
+        'Invalid username or password',
+      );
     }
+
+    const user = users[0];
+
+    const passwordMatched = await bcrypt.compare(
+      dto.password,
+      user.password,
+    );
+
+    if (!passwordMatched) {
+      throw new UnauthorizedException(
+        'Invalid username or password',
+      );
+    }
+
+    const payload = {
+      userId: user.id,
+      username: user.username,
+      roleId: user.roleId,
+      roleName: user.roleName,
+    };
+
+    const token = await this.jwtService.signAsync(payload);
+
+    delete user.password;
+
+    return {
+      success: true,
+      message: 'Login successful',
+      accessToken: token,
+      user,
+    };
+  }
+
+  async getGradeGroupList() {
+    const query = `
+    SELECT
+      id,
+      name,
+      priority
+    FROM gradegroupmaster
+    WHERE status = 1
+    ORDER BY priority ASC
+  `;
+
+    const result = await this.dataSource.query(query);
+
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  async getGradesByGradeGroup(gradeGroupId: number) {
+    const query = `
+    SELECT
+      id,
+      name,
+      code,
+      priority
+    FROM grademaster
+    WHERE gradeGroupId = ?
+      AND status = 1
+    ORDER BY priority ASC
+  `;
+
+    const result = await this.dataSource.query(query, [
+      gradeGroupId,
+    ]);
+
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  async getRegionList() {
+    const query = `
+      SELECT
+        id,
+        name,
+        code
+      FROM regionmaster
+      WHERE status = 1
+      ORDER BY name ASC
+    `;
+
+    const result = await this.dataSource.query(query);
+
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  async getSchoolsByRegion(regionId: number, udisecode?: string) {
+    let query = `
+      SELECT
+        id,
+        regionId,
+        udiseCode,
+        schoolName
+      FROM schoolmaster
+      WHERE regionId = ?
+        AND status = 1
+    `;
+
+    const queryParams: any[] = [regionId];
+
+    if (udisecode) {
+      query += ` AND udiseCode LIKE ?`;
+      queryParams.push(`%${udisecode}%`);
+    }
+
+    query += ` ORDER BY schoolName ASC`;
+
+    const result = await this.dataSource.query(query, queryParams);
+
+    return {
+      success: true,
+      data: result,
+    };
   }
 }

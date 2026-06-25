@@ -1,5 +1,4 @@
 import { Base } from 'src/modules/base';
-import { RoleMaster } from 'src/modules/roles/entities/role.entity';
 
 import {
   Entity,
@@ -8,46 +7,75 @@ import {
   JoinColumn,
   OneToMany,
   OneToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+  CreateDateColumn,
 } from 'typeorm';
 
 @Entity({ name: 'usermaster' })
-export class UserMaster extends Base {
-  @ManyToOne(() => RoleMaster, { nullable: true })
-  @JoinColumn({ name: 'roleId' })
-  role: RoleMaster | null;
+export class UserMaster {
+  @PrimaryGeneratedColumn()
+  id: number;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  fullName: string | null;
+  @Column()
+  roleId: number;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  email: string | null;
+  @Column({ nullable: true })
+  languageId: number;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  phone: string | null;
+  @Column({ length: 100, nullable: true })
+  username: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  password: string | null;
+  @Column({
+    type: 'enum',
+    enum: ['Admin', 'Teacher', 'Student'],
+  })
+  userType: string;
 
-  @Column({ type: 'tinyint', default: 0 })
-  isEmailSent: number;
+  @Column({ length: 255, nullable: true })
+  firstName: string;
 
-  /**
-   * 0 -> inactive
-   * 1 -> active
-   * 2 -> deleted
-   * 3 -> first time
-   */
-  @Column({ type: 'tinyint', default: 1 })
+  @Column({ length: 255, nullable: true })
+  lastName: string;
+
+  @Column({ length: 255, nullable: true, unique: true })
+  email: string;
+
+  @Column({ length: 20, nullable: true })
+  mobileNo: string;
+
+  @Column({ length: 255 })
+  password: string;
+
+  @Column({
+    type: 'tinyint',
+    default: 1,
+  })
   status: number;
+
+  @Column({
+    type: 'bigint',
+    nullable: true,
+  })
+  createdBy: number;
+
+  @Column({
+    type: 'bigint',
+    nullable: true,
+  })
+  updatedBy: number;
+
+  @CreateDateColumn({
+    type: 'timestamp',
+  })
+  createdAt: Date;
+
+  @UpdateDateColumn({
+    type: 'timestamp',
+  })
+  updatedAt: Date;
+
 
   @Column({ type: 'text', nullable: true })
   token: string | null;
-
-  @ManyToOne(() => UserMaster, { nullable: true })
-  @JoinColumn({ name: 'createdBy' })
-  createdBy: UserMaster | null;
-
-  @ManyToOne(() => UserMaster, { nullable: true })
-  @JoinColumn({ name: 'updatedBy' })
-  updatedBy: UserMaster | null;
 }

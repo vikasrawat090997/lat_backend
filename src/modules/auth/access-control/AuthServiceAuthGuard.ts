@@ -9,7 +9,7 @@ export class AuthService {
   constructor(
     @InjectRepository(UserMaster)
     private userMasterRepository: Repository<UserMaster>,
-  ) {}
+  ) { }
 
   async validateToken(token: string): Promise<boolean> {
     const tokenEntry = await this.userMasterRepository.findOne({
