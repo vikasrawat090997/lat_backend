@@ -51,6 +51,7 @@
     "class-validator": "^0.14.2",
     "cookie-parser": "^1.4.7",
     "crypto": "^1.0.1",
+    "exceljs": "^4.4.0",
     "jest": "^30.0.4",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
