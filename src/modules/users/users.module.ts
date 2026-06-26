@@ -11,10 +11,12 @@ import { JwtStrategy } from '../auth/access-control/jwt.strategy';
 import { AuthService } from '../auth/access-control/AuthServiceAuthGuard';
 import { JwtDatabaseAuthGuard } from '../auth/access-control/JwtDatabaseAuthGuard';
 import { UserMaster } from './entities/user.entity';
+import { StudentExam } from './entities/student_exam.entity';
+import { StudentExamQuestion } from './entities/student_exam_question.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserMaster]),
+    TypeOrmModule.forFeature([UserMaster, StudentExam, StudentExamQuestion]),
     PassportModule,
     ConfigModule.forRoot(),
     JwtModule.register({

@@ -18,6 +18,7 @@ import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GenerateQuestionsDto } from './dto/generate-questions.dto';
+import { CheckExamDto, StartExamDto, SubmitExamDto, GetExamQuestionsDto } from './dto/exam.dto';
 
 @Injectable()
 export class UsersService {
@@ -1234,7 +1235,8 @@ export class UsersService {
       subjectId: dto.subjectId,
       term: dto.term
     });
-
+    console.log(competencyData)
+    return
     let targetCompetencies = [];
 
     if (!dto.competencyIds || dto.competencyIds.length === 0) {
@@ -1594,5 +1596,187 @@ export class UsersService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  async checkExamStatus(dto: CheckExamDto) {
+    const term = await this.dataSource.query(
+      `SELECT id, CURDATE() BETWEEN examStartDate AND examEndDate as isActive FROM termmaster WHERE id = ? LIMIT 1`,
+      [dto.termId]
+    );
+
+    if (!term || term.length === 0) {
+      return { status: "NOT_SCHEDULED" }
+    }
+
+
+    const existing = await this.dataSource.query(
+      `SELECT status FROM student_exam WHERE studentId = ? AND termId = ? LIMIT 1`,
+      [dto.studentId, dto.termId]
+    );
+
+    if (existing && existing.length > 0) {
+      if (existing[0].status === 'COMPLETED') {
+        return { status: "COMPLETED" }
+      }
+      return { status: "IN_PROGRESS" }
+    }
+
+    return { status: 'NOT_STARTED' };
+  }
+
+  async startExam(dto: StartExamDto) {
+    await this.checkExamStatus(dto);
+
+    const result = await this.dataSource.query(
+      `INSERT INTO student_exam (studentId, termId, status, startedAt) VALUES (?, ?, 'STARTED', NOW())`,
+      [dto.studentId, dto.termId]
+    );
+
+    return { message: 'Exam started successfully', studentExamId: result.insertId };
+  }
+
+  async submitExam(dto: SubmitExamDto) {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const examCheck = await queryRunner.query(
+        `SELECT id, status FROM student_exam WHERE id = ? `,
+        [dto.studentExamId]
+      );
+
+      if (!examCheck || examCheck.length === 0) {
+        throw new NotFoundException('Exam session not found');
+      }
+
+      if (examCheck[0].status === 'COMPLETED') {
+        throw new BadRequestException('Exam already submitted');
+      }
+
+      const insertAnswerSql = `
+        INSERT INTO student_exam_question (studentExamId, questionId, optionId, isCorrect)
+        VALUES (?, ?, ?, ?)
+      `;
+
+      for (const answer of dto.answers) {
+        const qRes = await queryRunner.query(`SELECT isCorrect FROM question_options WHERE id = ?`, [answer.optionId]);
+        const isCorrect = qRes && qRes.length > 0 && qRes[0].isCorrect === 1 ? 1 : 0;
+
+        await queryRunner.query(insertAnswerSql, [
+          dto.studentExamId,
+          answer.questionId,
+          answer.optionId,
+          isCorrect
+        ]);
+      }
+
+      await queryRunner.query(
+        `UPDATE student_exam SET status = 'COMPLETED', completedAt = NOW() WHERE id = ?`,
+        [dto.studentExamId]
+      );
+
+      await queryRunner.commitTransaction();
+
+      return { message: 'Exam submitted successfully' };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async getExamQuestions(dto: GetExamQuestionsDto) {
+    const statusResult = await this.checkExamStatus(dto);
+    if (statusResult.status === 'NOT_SCHEDULED') {
+      throw new BadRequestException('Exam is not currently active for this term');
+    }
+    if (statusResult.status === 'COMPLETED') {
+      throw new BadRequestException('Exam already submitted');
+    }
+
+    const studentCheck = await this.dataSource.query(
+      `SELECT gradeId FROM studentmaster WHERE userId = ? LIMIT 1`,
+      [dto.studentId]
+    );
+
+    if (!studentCheck || studentCheck.length === 0) {
+      throw new NotFoundException('Student not found');
+    }
+
+    const gradeId = studentCheck[0].gradeId;
+
+    const mappings = await this.dataSource.query(
+      `SELECT subject_Id, mandatory_question_count 
+       FROM grade_subject_question_mapping 
+       WHERE grade_Id = ? AND status = 1`,
+      [gradeId]
+    );
+
+    if (!mappings || mappings.length === 0) {
+      return [];
+    }
+    console.log(mappings)
+    let allQuestions = [];
+
+    for (const map of mappings) {
+      const { subject_Id, mandatory_question_count } = map;
+      if (mandatory_question_count > 0) {
+        const subjectQuestions = await this.dataSource.query(
+          `SELECT q.id, q.instruction, q.stimulus, q.question_text, q.requires_image, q.image_prompt ,q.image_url
+           FROM questions q
+           WHERE q.display_grade = ? AND q.subject_id = ? AND q.status = 1
+           ORDER BY RAND() LIMIT ?`,
+          [gradeId, subject_Id, mandatory_question_count]
+        );
+        if (subjectQuestions && subjectQuestions.length > 0) {
+          allQuestions = allQuestions.concat(subjectQuestions);
+        }
+      }
+    }
+
+    if (allQuestions.length === 0) {
+      return [];
+    }
+
+    // Shuffle combined questions
+    for (let i = allQuestions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allQuestions[i], allQuestions[j]] = [allQuestions[j], allQuestions[i]];
+    }
+
+    const questionIds = allQuestions.map((q: any) => q.id);
+
+    const options = await this.dataSource.query(
+      `SELECT id, question_id, option_letter, option_text, requires_image, image_prompt ,image_url
+       FROM question_options 
+       WHERE question_id IN (?)`,
+      [questionIds]
+    );
+
+    return allQuestions.map((q: any) => {
+      let qOptions = options
+        .filter((o: any) => o.question_id === q.id)
+        .map((o: any) => ({
+          id: o.id,
+          option_letter: o.option_letter,
+          option_text: o.option_text,
+          requires_image: o.requires_image,
+          image_prompt: o.image_prompt,
+          image_url: o.image_url,
+        }));
+
+      // Shuffle options
+      for (let i = qOptions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [qOptions[i], qOptions[j]] = [qOptions[j], qOptions[i]];
+      }
+
+      return {
+        ...q,
+        options: qOptions
+      };
+    });
   }
 }

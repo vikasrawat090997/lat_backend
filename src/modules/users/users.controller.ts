@@ -10,6 +10,7 @@ import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../auth/access-control/jwt-auth.guard';
 import { GetCompetenciesDto } from './dto/get-competencies.dto';
 import { GenerateQuestionsDto } from './dto/generate-questions.dto';
+import { CheckExamDto, StartExamDto, SubmitExamDto, GetExamQuestionsDto } from './dto/exam.dto';
 
 @Controller('')
 export class UsersController {
@@ -208,6 +209,30 @@ export class UsersController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async generateBatchQuestions(@Body() dto: GenerateQuestionsDto) {
     return await this.usersService.processBatchGeneration(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('students/exam/check')
+  async checkExamStatus(@Body() dto: CheckExamDto) {
+    return this.usersService.checkExamStatus(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('students/exam/start')
+  async startExam(@Body() dto: StartExamDto) {
+    return this.usersService.startExam(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('students/exam/questions')
+  async getExamQuestions(@Body() dto: GetExamQuestionsDto) {
+    return this.usersService.getExamQuestions(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('students/exam/submit')
+  async submitExam(@Body() dto: SubmitExamDto) {
+    return this.usersService.submitExam(dto);
   }
 }
 
