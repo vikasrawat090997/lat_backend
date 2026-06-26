@@ -111,4 +111,12 @@ export class QuestionOption {
         type: 'timestamp',
     })
     updatedAt: Date;
+
+    @Column({
+        name: 'rationale',
+        type: 'text',
+        nullable: true,
+        comment: 'Explanation for why this option is correct or incorrect',
+    })
+    rationale: string;
 }

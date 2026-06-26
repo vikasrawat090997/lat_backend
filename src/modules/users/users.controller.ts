@@ -26,12 +26,11 @@ export class UsersController {
     return this.usersService.getGradeGroupList();
   }
 
-  @Get('grade-group/:gradeGroupId/grades')
+  @Get('grades')
   async getGradesByGradeGroup(
-    @Param('gradeGroupId') gradeGroupId: number,
   ) {
     return this.usersService.getGradesByGradeGroup(
-      gradeGroupId,
+
     );
   }
 
@@ -55,6 +54,19 @@ export class UsersController {
     @Query('udisecode') udisecode?: string,
   ) {
     return this.usersService.getSchoolsByRegion(regionId, udisecode);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('admin/dashboard/summary')
+  async getDashboardSummary() {
+    return this.usersService.getDashboardSummary();
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('teacher/dashboard')
+  async getTeacherDashboard(@Req() req: any) {
+    const userId = req.user?.userId;
+    return this.usersService.getTeacherDashboard(userId);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -130,8 +142,11 @@ export class UsersController {
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
+    @Query('gradeId') gradeId?: string,
+    @Query('section') section?: string,
+    @Query('status') status?: string,
   ) {
-    return this.usersService.getStudentList(Number(page), Number(limit), search);
+    return this.usersService.getStudentList(Number(page), Number(limit), search, gradeId, section, status);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -174,13 +189,14 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Patch('students/:userId/status')
-  @ApiBody({ schema: { type: 'object', properties: { status: { type: 'number', example: 1 } } } })
+  @Post('students/status')
+  @ApiBody({ schema: { type: 'object', properties: { status: { type: 'number', example: 1 }, studentId: { type: 'number', example: 1 } } } })
   async toggleStudentStatus(
-    @Param('userId') userId: number,
     @Body('status') status: number,
+    @Body('studentId') studentId: number,
   ) {
-    return this.usersService.toggleStudentStatus(userId, status);
+
+    return this.usersService.toggleStudentStatus(studentId, status);
   }
 
   @Post('competencies-list')

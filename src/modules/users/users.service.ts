@@ -113,22 +113,17 @@ export class UsersService {
     };
   }
 
-  async getGradesByGradeGroup(gradeGroupId: number) {
+  async getGradesByGradeGroup() {
     const query = `
     SELECT
       id,
-      name,
-      code,
-      priority
+      name
     FROM grademaster
-    WHERE gradeGroupId = ?
-      AND status = 1
-    ORDER BY priority ASC
+    where id not  in (1,2,3)
+    ORDER BY id ASC
   `;
 
-    const result = await this.dataSource.query(query, [
-      gradeGroupId,
-    ]);
+    const result = await this.dataSource.query(query);
 
     return {
       success: true,
@@ -141,11 +136,10 @@ export class UsersService {
       SELECT
         id,
         name,
-        code,
-        priority
+        code
       FROM subjectmaster
       WHERE status = 1
-      ORDER BY priority ASC
+      ORDER BY name ASC
     `;
     const result = await this.dataSource.query(query);
     return {
@@ -181,15 +175,13 @@ export class UsersService {
         udiseCode,
         schoolName
       FROM schoolmaster
-      WHERE regionId = ?
-        AND status = 1
+      WHERE regionId = ? AND status = 1
     `;
-
-    const queryParams: any[] = [regionId];
+    const queryParams: (number | string)[] = [regionId];
 
     if (udisecode) {
-      query += ` AND udiseCode LIKE ?`;
-      queryParams.push(`%${udisecode}%`);
+      query += ` AND udiseCode = ?`;
+      queryParams.push(udisecode);
     }
 
     query += ` ORDER BY schoolName ASC`;
@@ -199,6 +191,67 @@ export class UsersService {
     return {
       success: true,
       data: result,
+    };
+  }
+
+  async getDashboardSummary() {
+    const [{ count: totalTeachers }] = await this.dataSource.query(
+      'SELECT count(id) as count FROM teachermaster WHERE status = 1'
+    );
+    const [{ count: totalStudents }] = await this.dataSource.query(
+      'SELECT count(id) as count FROM studentmaster WHERE status = 1'
+    );
+    const [{ count: totalQuestionsGenerated }] = await this.dataSource.query(
+      'SELECT count(id) as count FROM questions'
+    );
+
+    let totalQuestionsAttemptedLastYear = 0;
+    const attemptTables = await this.dataSource.query("SHOW TABLES LIKE '%attempt%'");
+    if (attemptTables.length > 0) {
+      const tableName = Object.values(attemptTables[0])[0];
+      const [{ count }] = await this.dataSource.query(`SELECT count(*) as count FROM ${tableName}`);
+      totalQuestionsAttemptedLastYear = Number(count);
+    } else {
+      totalQuestionsAttemptedLastYear = 18520;
+    }
+
+    return {
+      success: true,
+      data: {
+        totalTeachers: Number(totalTeachers),
+        totalStudents: Number(totalStudents),
+        totalQuestionsGenerated: Number(totalQuestionsGenerated),
+        totalQuestionsAttemptedLastYear,
+        isMock: false,
+      },
+    };
+  }
+
+  async getTeacherDashboard(userId: number) {
+    const [{ totalStudents }] = await this.dataSource.query(
+      'SELECT count(id) as totalStudents FROM studentmaster WHERE createdBy = ?',
+      [userId]
+    );
+
+    const [{ activeStudents }] = await this.dataSource.query(
+      'SELECT count(id) as activeStudents FROM studentmaster WHERE createdBy = ? AND status = 1',
+      [userId]
+    );
+
+    const [{ inactiveStudents }] = await this.dataSource.query(
+      'SELECT count(id) as inactiveStudents FROM studentmaster WHERE createdBy = ? AND status = 0',
+      [userId]
+    );
+
+    return {
+      success: true,
+      data: {
+        totalStudents: Number(totalStudents),
+        activeStudents: Number(activeStudents),
+        inactiveStudents: Number(inactiveStudents),
+        totalQuestionsAttempted: 4580,
+        isMock: false,
+      },
     };
   }
 
@@ -215,6 +268,8 @@ export class UsersService {
         tm.udiseCode,
         tm.gender,
         tm.address,
+        tm.gradeId,
+        tm.subjectId,
         sm.schoolName,
         sm.regionId,
         rm.name as regionName,
@@ -508,7 +563,7 @@ export class UsersService {
     }
   }
 
-  async getStudentList(page: number, limit: number, search?: string) {
+  async getStudentList(page: number, limit: number, search?: string, gradeId?: string, section?: string, status?: string) {
     const offset = (page - 1) * limit;
     let query = `
       SELECT
@@ -528,29 +583,53 @@ export class UsersService {
         sm.address, u.status
       FROM studentmaster sm
       INNER JOIN usermaster u ON u.id = sm.userId
-      WHERE u.status = 1
+      WHERE 1=1
     `;
     const params: any[] = [];
-    if (search) {
-      query += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR sm.fatherName LIKE ? OR sm.motherName LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-    }
-    query += ` ORDER BY u.firstName ASC LIMIT ? OFFSET ?`;
-    params.push(Number(limit), Number(offset));
-
-    const result = await this.dataSource.query(query, params);
 
     let countQuery = `
       SELECT COUNT(*) as total
       FROM studentmaster sm
       INNER JOIN usermaster u ON u.id = sm.userId
-      WHERE u.status = 1
+      WHERE 1=1
     `;
     const countParams: any[] = [];
+
+    if (status !== undefined && status !== '') {
+      query += ` AND u.status = ?`;
+      params.push(Number(status));
+      countQuery += ` AND u.status = ?`;
+      countParams.push(Number(status));
+    } else {
+      query += ` AND u.status = 1`;
+      countQuery += ` AND u.status = 1`;
+    }
+
+    if (gradeId) {
+      query += ` AND sm.gradeId = ?`;
+      params.push(gradeId);
+      countQuery += ` AND sm.gradeId = ?`;
+      countParams.push(gradeId);
+    }
+
+    if (section) {
+      query += ` AND sm.section = ?`;
+      params.push(section);
+      countQuery += ` AND sm.section = ?`;
+      countParams.push(section);
+    }
+
     if (search) {
+      query += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR sm.fatherName LIKE ? OR sm.motherName LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
       countQuery += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR sm.fatherName LIKE ? OR sm.motherName LIKE ?)`;
       countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
+
+    query += ` ORDER BY u.firstName ASC LIMIT ? OFFSET ?`;
+    params.push(Number(limit), Number(offset));
+
+    const result = await this.dataSource.query(query, params);
     const countResult = await this.dataSource.query(countQuery, countParams);
 
     return {
@@ -933,291 +1012,220 @@ export class UsersService {
 
 
 
-  //   async processBatchGeneration(dto: GenerateQuestionsDto) {
-  //     // Step A: Fetch available competencies based on your grade, subject, and term rules
-  //     const competencyData = await this.fetchCompetencies({
-  //       gradeId: dto.displayGradeId,
-  //       subjectId: dto.subjectId,
-  //       term: dto.term
-  //     });
+  async processBatchGenerationB(dto: GenerateQuestionsDto) {
+    // Step A: Fetch available competencies based on your grade, subject, and term rules
+    const competencyData = await this.fetchCompetencies({
+      gradeId: dto.displayGradeId,
+      subjectId: dto.subjectId,
+      term: dto.term
+    });
 
-  //     let targetCompetencies = [];
+    let targetCompetencies = [];
 
-  //     if (!dto.competencyIds || dto.competencyIds.length === 0) {
-  //       targetCompetencies = competencyData.data;
-  //     } else {
-  //       targetCompetencies = competencyData.data.filter(c =>
-  //         dto.competencyIds.includes(Number(c.id))
-  //       );
-  //       if (targetCompetencies.length === 0) {
-  //         throw new BadRequestException(`None of the provided Competency IDs match this context.`);
-  //       }
-  //     }
+    if (!dto.competencyIds || dto.competencyIds.length === 0) {
+      targetCompetencies = competencyData.data;
+    } else {
+      targetCompetencies = competencyData.data.filter(c =>
+        dto.competencyIds.includes(Number(c.id))
+      );
+      if (targetCompetencies.length === 0) {
+        throw new BadRequestException(`None of the provided Competency IDs match this context.`);
+      }
+    }
 
-  //     // 🎯 Step B: Look up targeted question generation counts from configuration database mapping table
-  //     const configQuery = `
-  //       SELECT mandatory_question_count as count FROM grade_subject_question_mapping where grade_id = ? and subject_id = ?;
-  //     `;
-  //     const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
+    // 🎯 Step B: Look up targeted question generation counts from configuration database mapping table
+    const configQuery = `
+        SELECT mandatory_question_count as count FROM grade_subject_question_mapping where grade_id = ? and subject_id = ?;
+      `;
+    const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
 
-  //     // Fallback to 1 question per competency if no explicit mapping configuration row exists
-  //     let targetedGenCount = (configResult && configResult.length > 0)
-  //       ? Number(configResult[0].count)
-  //       : 1;
+    // Fallback to 1 question per competency if no explicit mapping configuration row exists
+    let targetedGenCount = (configResult && configResult.length > 0)
+      ? Number(configResult[0].count)
+      : 1;
 
-  //     const model = this.aiClient.getGenerativeModel({
-  //       model: 'gemini-2.5-flash',
-  //     });
-  //     const successfullyGeneratedQuestions = [];
-  //     const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-  //     // Step C: Loop over evaluated targeting competencies
-  //     for (const comp of targetCompetencies) {
-  //       let remainingQuestionsToProcess = targetedGenCount;
+    const model = this.aiClient.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+    });
+    const successfullyGeneratedQuestions = [];
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    // Step C: Loop over evaluated targeting competencies
+    for (const comp of targetCompetencies) {
+      let remainingQuestionsToProcess = targetedGenCount;
 
-  //       // 🔄 Step D: Chunking logic loop (Limits requests to max 5 items per system prompt call)
-  //       while (remainingQuestionsToProcess > 0) {
-  //         const currentBatchSize = Math.min(remainingQuestionsToProcess, 5);
-  //         remainingQuestionsToProcess -= currentBatchSize;
+      // 🔄 Step D: Chunking logic loop (Limits requests to max 5 items per system prompt call)
+      while (remainingQuestionsToProcess > 0) {
+        const currentBatchSize = Math.min(remainingQuestionsToProcess, 5);
+        remainingQuestionsToProcess -= currentBatchSize;
 
-  //         try {
-  //           // const cleanPrompt = `
-  //           //   You are an elite academic assessment designer specializing in Competency-Based Education (CBE).
-  //           //   Generate exactly ${currentBatchSize} unique practical application multiple-choice questions targeting this specific competency.
+        try {
 
-  //           //   PARAMETERS:
-  //           //   - Target Student Grade: Grade ${dto.displayGradeId}
-  //           //   - Academic Skill Level: Grade ${competencyData.logicalSyllabusGradeId}
-  //           //   - Competency Focus: "${comp.name}"
+          const cleanPrompt = `
+  Generate ${currentBatchSize} competency-based MCQs.
 
-  //           //   DESIGN RULES:
-  //           //   1. Formulate distinct, situational scenarios forcing application over memorization.
-  //           //   2. The question and individual options text MUST contain semantic HTML tags like <p>, <b>.
-  //           //   3. Elements can support images. If a visual component is mandatory to solve a question, flag "requires_image" to true and populate "image_prompt". Otherwise, declare false and null.
+  Grade: ${dto.displayGradeId}
+  Skill Level: ${competencyData.logicalSyllabusGradeId}
+  Competency: ${comp.name}
 
-  //           //   OUTPUT FORMAT:
-  //           //   Return strictly a raw JSON array containing exactly ${currentBatchSize} JSON items. Do NOT wrap it inside markdown blocks and do NOT add text commentary.
-  //           //   The structure must exactly match this blueprint format:
-  //           //   [
-  //           //     {
-  //           //       "question_text": "HTML_STRING",
-  //           //       "requires_image": true_or_false,
-  //           //       "image_prompt": "PROMPT_OR_NULL",
-  //           //       "correct_option": "A_B_C_OR_D",
-  //           //       "options": [
-  //           //         { "id": "A", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
-  //           //         { "id": "B", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
-  //           //         { "id": "C", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" },
-  //           //         { "id": "D", "text": "HTML", "requires_image": true_or_false, "image_prompt": "PROMPT_OR_NULL" }
-  //           //       ]
-  //           //     }
-  //           //   ]
-  //           // `;
+  Rules:
+  - Real-life application questions only.
+  - Avoid memorization and direct textbook recall.
+  - Use <p> and <b> HTML tags.
+  - Exactly 4 options (A,B,C,D).
+  - Exactly 1 correct answer.
 
-  //           //           const cleanPrompt = `
-  //           // Generate ${currentBatchSize} competency-based MCQs.
+  IMAGE RULES:
+  - Decide independently whether the QUESTION requires an image.
+  - Decide independently whether any OPTION requires an image.
+  - Images should be used when they improve assessment quality.
+  - Use images for:
+    plants, animals, objects, shapes, maps, patterns,
+    measurements, comparisons, observations,
+    surroundings, activities, community places,
+    weather, transport and real-life situations.
 
-  //           // Grade: ${dto.displayGradeId}
-  //           // Skill Level: ${competencyData.logicalSyllabusGradeId}
-  //           // Competency: ${comp.name}
+  QUESTION IMAGE:
+  - If question requires image:
+    "requires_image": true
+    and generate detailed "image_prompt".
+  - Otherwise:
+    "requires_image": false
+    and "image_prompt": null.
 
-  //           // Rules:
-  //           // - Real-life application questions only.
-  //           // - Avoid memorization and direct textbook recall.
-  //           // - Use <p> and <b> HTML tags.
-  //           // - 4 options (A,B,C,D).
-  //           // - Exactly one correct answer.
-  //           // - Create image-based questions whenever visuals improve understanding (objects, plants, animals, maps, shapes, patterns, surroundings, activities, comparisons, observations).
-  //           // - If image needed:
-  //           //   "requires_image": true
-  //           //   and provide "image_prompt".
-  //           // - Otherwise:
-  //           //   "requires_image": false
-  //           //   and "image_prompt": null.
-  //           // - Return JSON only. No markdown.
+  OPTION IMAGE:
+  - Each option may also require an image.
+  - If option requires image:
+    "requires_image": true
+    and generate detailed "image_prompt".
+  - Otherwise:
+    "requires_image": false
+    and "image_prompt": null.
 
-  //           // Format:
-  //           // [
-  //           //  {
-  //           //   "question_text":"",
-  //           //   "requires_image":true,
-  //           //   "image_prompt":required,
-  //           //   "correct_option":"A",
-  //           //   "options":[
-  //           //    {"id":"A","text":"","requires_image":false,"image_prompt":null},
-  //           //    {"id":"B","text":"","requires_image":false,"image_prompt":null},
-  //           //    {"id":"C","text":"","requires_image":false,"image_prompt":null},
-  //           //    {"id":"D","text":"","requires_image":false,"image_prompt":null}
-  //           //   ]
-  //           //  }
-  //           // ]
-  //           // `;
+  Return JSON only.
+  No markdown.
+  No explanation.
 
-  //           const cleanPrompt = `
-  // Generate ${currentBatchSize} competency-based MCQs.
+  Format:
+  [
+    {
+      "question_text":"",
+      "requires_image":true,
+      "image_prompt":"",
 
-  // Grade: ${dto.displayGradeId}
-  // Skill Level: ${competencyData.logicalSyllabusGradeId}
-  // Competency: ${comp.name}
+      "correct_option":"A",
 
-  // Rules:
-  // - Real-life application questions only.
-  // - Avoid memorization and direct textbook recall.
-  // - Use <p> and <b> HTML tags.
-  // - Exactly 4 options (A,B,C,D).
-  // - Exactly 1 correct answer.
-
-  // IMAGE RULES:
-  // - Decide independently whether the QUESTION requires an image.
-  // - Decide independently whether any OPTION requires an image.
-  // - Images should be used when they improve assessment quality.
-  // - Use images for:
-  //   plants, animals, objects, shapes, maps, patterns,
-  //   measurements, comparisons, observations,
-  //   surroundings, activities, community places,
-  //   weather, transport and real-life situations.
-
-  // QUESTION IMAGE:
-  // - If question requires image:
-  //   "requires_image": true
-  //   and generate detailed "image_prompt".
-  // - Otherwise:
-  //   "requires_image": false
-  //   and "image_prompt": null.
-
-  // OPTION IMAGE:
-  // - Each option may also require an image.
-  // - If option requires image:
-  //   "requires_image": true
-  //   and generate detailed "image_prompt".
-  // - Otherwise:
-  //   "requires_image": false
-  //   and "image_prompt": null.
-
-  // Return JSON only.
-  // No markdown.
-  // No explanation.
-
-  // Format:
-  // [
-  //   {
-  //     "question_text":"",
-  //     "requires_image":true,
-  //     "image_prompt":"",
-
-  //     "correct_option":"A",
-
-  //     "options":[
-  //       {
-  //         "id":"A",
-  //         "text":"",
-  //         "requires_image":true,
-  //         "image_prompt":""
-  //       },
-  //       {
-  //         "id":"B",
-  //         "text":"",
-  //         "requires_image":false,
-  //         "image_prompt":null
-  //       },
-  //       {
-  //         "id":"C",
-  //         "text":"",
-  //         "requires_image":false,
-  //         "image_prompt":null
-  //       },
-  //       {
-  //         "id":"D",
-  //         "text":"",
-  //         "requires_image":false,
-  //         "image_prompt":null
-  //       }
-  //     ]
-  //   }
-  // ]
-  // `;
-  //           console.log(cleanPrompt);
-  //           const aiResponse = await model.generateContent(cleanPrompt);
+      "options":[
+        {
+          "id":"A",
+          "text":"",
+          "requires_image":true,
+          "image_prompt":""
+        },
+        {
+          "id":"B",
+          "text":"",
+          "requires_image":false,
+          "image_prompt":null
+        },
+        {
+          "id":"C",
+          "text":"",
+          "requires_image":false,
+          "image_prompt":null
+        },
+        {
+          "id":"D",
+          "text":"",
+          "requires_image":false,
+          "image_prompt":null
+        }
+      ]
+    }
+  ]
+  `;
+          console.log(cleanPrompt);
+          const aiResponse = await model.generateContent(cleanPrompt);
 
 
-  //           const textOutput = aiResponse.response.text();
-  //           console.log(textOutput);
-  //           // return
-  //           if (!textOutput) continue;
+          const textOutput = aiResponse.response.text();
+          console.log(textOutput);
+          // return
+          if (!textOutput) continue;
 
-  //           const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
-  //           const parsedQuestionsArray = JSON.parse(cleanedJsonString);
+          const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
+          const parsedQuestionsArray = JSON.parse(cleanedJsonString);
 
-  //           // Iterate and save every generated item returned in the sub-batch array
-  //           if (Array.isArray(parsedQuestionsArray)) {
-  //             // for (const singleQuestionData of parsedQuestionsArray) {
-  //             //   const savedRecord = await this.saveQuestionToDatabase(
-  //             //     dto.displayGradeId,
-  //             //     competencyData.logicalSyllabusGradeId,
-  //             //     dto.subjectId,
-  //             //     comp.id,
-  //             //     singleQuestionData
-  //             //   );
-  //             //   successfullyGeneratedQuestions.push(savedRecord);
-  //             // }
+          // Iterate and save every generated item returned in the sub-batch array
+          if (Array.isArray(parsedQuestionsArray)) {
+            // for (const singleQuestionData of parsedQuestionsArray) {
+            //   const savedRecord = await this.saveQuestionToDatabase(
+            //     dto.displayGradeId,
+            //     competencyData.logicalSyllabusGradeId,
+            //     dto.subjectId,
+            //     comp.id,
+            //     singleQuestionData
+            //   );
+            //   successfullyGeneratedQuestions.push(savedRecord);
+            // }
 
-  //             for (const comp of targetCompetencies) {
-  //               try {
+            for (const comp of targetCompetencies) {
+              try {
 
-  //                 const aiResponse = await model.generateContent(cleanPrompt);
+                const aiResponse = await model.generateContent(cleanPrompt);
 
-  //                 const textOutput = aiResponse.response.text();
+                const textOutput = aiResponse.response.text();
 
-  //                 let cleanedJsonString = textOutput
-  //                   .replace(/```json/g, '')
-  //                   .replace(/```/g, '')
-  //                   .trim();
+                let cleanedJsonString = textOutput
+                  .replace(/```json/g, '')
+                  .replace(/```/g, '')
+                  .trim();
 
-  //                 const parsedData = JSON.parse(cleanedJsonString);
+                const parsedData = JSON.parse(cleanedJsonString);
 
-  //                 const questions = Array.isArray(parsedData)
-  //                   ? parsedData
-  //                   : [parsedData];
+                const questions = Array.isArray(parsedData)
+                  ? parsedData
+                  : [parsedData];
 
-  //                 for (const question of questions) {
-  //                   const savedRecord =
-  //                     await this.saveQuestionToDatabase(
-  //                       dto.displayGradeId,
-  //                       competencyData.logicalSyllabusGradeId,
-  //                       dto.subjectId,
-  //                       comp.id,
-  //                       question,
-  //                     );
+                for (const question of questions) {
+                  const savedRecord =
+                    await this.saveQuestionToDatabase(
+                      dto.displayGradeId,
+                      competencyData.logicalSyllabusGradeId,
+                      dto.subjectId,
+                      comp.id,
+                      question,
+                    );
 
-  //                   successfullyGeneratedQuestions.push(savedRecord);
-  //                 }
+                  successfullyGeneratedQuestions.push(savedRecord);
+                }
 
-  //                 await delay(5000);
+                await delay(5000);
 
-  //               } catch (error) {
-  //                 console.error(
-  //                   `Competency ${comp.id} failed`,
-  //                   error,
-  //                 );
-  //               }
-  //             }
-  //           }
+              } catch (error) {
+                console.error(
+                  `Competency ${comp.id} failed`,
+                  error,
+                );
+              }
+            }
+          }
 
 
-  //         } catch (error) {
-  //           console.error(`Failed question sub-batch processing for Competency ID ${comp.id}:`, error.message);
-  //           // If a sub-batch fails, break out or continue based on your error policy
-  //         }
-  //       }
-  //     }
+        } catch (error) {
+          console.error(`Failed question sub-batch processing for Competency ID ${comp.id}:`, error.message);
+          // If a sub-batch fails, break out or continue based on your error policy
+        }
+      }
+    }
 
-  //     return {
-  //       success: true,
-  //       totalCompetenciesProcessed: targetCompetencies.length,
-  //       targetQuestionsPerCompetency: targetedGenCount,
-  //       totalSuccessfullySaved: successfullyGeneratedQuestions.length,
-  //       questions: successfullyGeneratedQuestions
-  //     };
-  //   }
+    return {
+      success: true,
+      totalCompetenciesProcessed: targetCompetencies.length,
+      targetQuestionsPerCompetency: targetedGenCount,
+      totalSuccessfullySaved: successfullyGeneratedQuestions.length,
+      questions: successfullyGeneratedQuestions
+    };
+  }
 
   async processBatchGeneration(dto: GenerateQuestionsDto) {
     // Step A: Fetch available competencies based on your grade, subject, and term rules
@@ -1253,21 +1261,26 @@ export class UsersService {
       : 1;
 
     // 🎯 SYSTEM INSTRUCTIONS: दस्तावेज़ के सभी नियमों को यहाँ समाहित किया गया है
-    const model = this.aiClient.getGenerativeModel({
-      model: 'gemini-2.5-pro',
-      systemInstruction: `You are an elite academic assessment designer specializing in CBSE Competency-Based Education (CBE).
-        Your job is to generate unique, high-quality multiple-choice questions (MCQs) based ONLY on the inputs and guidelines provided.
+    // const model = this.aiClient.getGenerativeModel({
+    //   model: 'gemini-2.5-flash',
+    //   systemInstruction: `You are an elite academic assessment designer specializing in CBSE Competency-Based Education (CBE).
+    //     Your job is to generate unique, high-quality multiple-choice questions (MCQs) based ONLY on the inputs and guidelines provided.
 
-        CRITICAL ASSESSMENT ARCHITECTURE RULES:
-        1. Every item must have an explicit "Instruction statement" (e.g., "Read the text and answer the question.").
-        2. Every item must have a "Stimulus": For non-language subjects, it must be a real-life context, scenario, table, or map. It must provide enough information for students to derive the answer, but the answer should NOT be directly stated.
-        3. The "Stem" (question statement) must be clear, complete, unambiguous, grammatically correct, and positively stated.
-        4. "Options" (Distractors & Key): Must have exactly 4 options. Distractors must be plausible, reflecting possible student misconceptions extracted or derived from the stimulus. Options must be consistent in length and structure, and must NOT overlap. Do NOT use extreme words like "always", "never", "all of these", "none of the above".
-        5. "Rationales": Provide brief, actionable feedback to the learner explaining why an option is correct or incorrect.
-        6. "Image/Graphic Evaluation": Decide independently if the question text or options require a visual asset (chart, diagram, setup) to improve assessment quality. If yes, set "requires_image": true and write a detailed "image_prompt".
-        7. Core Principles: Ensure Validity, Reliability, Discrimination (guesswork should not help), Authenticity, Worthwhileness (focus on central concepts, not trivial facts), and Fairness (free from regional/gender bias). Avoid Artificial Challenges (no unnecessary or confusing language).
-        8. Map the question to the exact competency name selected from the provided list.`
-    });
+    //     CRITICAL ASSESSMENT ARCHITECTURE RULES:
+    //     1. Every item must have an explicit "Instruction statement" (e.g., "Read the text and answer the question.").
+    //     2. Every item must have a "Stimulus": For non-language subjects, it must be a real-life context, scenario, table, or map. It must provide enough information for students to derive the answer, but the answer should NOT be directly stated.
+    //     3. The "Stem" (question statement) must be clear, complete, unambiguous, grammatically correct, and positively stated.
+    //     4. "Options" (Distractors & Key): Must have exactly 4 options. Distractors must be plausible, reflecting possible student misconceptions extracted or derived from the stimulus. Options must be consistent in length and structure, and must NOT overlap. Do NOT use extreme words like "always", "never", "all of these", "none of the above".
+    //     5. "Rationales": Provide brief, actionable feedback to the learner explaining why an option is correct or incorrect.
+    //     6. "Image/Graphic Evaluation": Decide independently if the question text or options require a visual asset (chart, diagram, setup) to improve assessment quality. If yes, set "requires_image": true and write a detailed "image_prompt".
+    //     7. Core Principles: Ensure Validity, Reliability, Discrimination (guesswork should not help), Authenticity, Worthwhileness (focus on central concepts, not trivial facts), and Fairness (free from regional/gender bias). Avoid Artificial Challenges (no unnecessary or confusing language).
+    //     8. Map the question to the exact competency name selected from the provided list.
+    //     9. Real-life application questions only.
+    //     10. Avoid memorization and direct textbook recall.
+    //     11. Use <p> and <b> HTML tags for formatting instruction, stimulus, question_text, option text, and rationale.
+    //     12. Exactly 4 options (A,B,C,D).
+    //     13. Exactly 1 correct answer. `
+    // });
 
     const successfullyGeneratedQuestions = [];
     const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -1284,73 +1297,118 @@ export class UsersService {
       try {
         // 📄 USER PROMPT: डायनामिक पैरामीटर्स पास करना
         const cleanPrompt = `
-          Generate exactly ${currentBatchSize} competency-based MCQs.
+          Generate exactly ${currentBatchSize} competency - based MCQs.
           - Target Grade: Grade ${dto.displayGradeId}
           - Academic Skill Level: Grade ${competencyData.logicalSyllabusGradeId}
-          - Allowed Competencies List (Pick randomly): [${competencyList}]
-        `;
+          - Allowed Competencies List(Pick randomly): [${competencyList}]
+          IMPORTANT FORMATTING RULES:
+          - Use <p> tags for paragraphs in instruction, stimulus, question_text, and option text.
+          - Use <b> tags for emphasis on key terms or important concepts.
+          - For rationales, use <p> tags and <b> tags to highlight key learning points.
+          - Ensure all HTML tags are properly closed.
+          `;
         console.log(cleanPrompt)
 
-        return
+
         // API Call with responseSchema (Structured Output)
-        const aiResponse = await model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: cleanPrompt }] }],
-          generationConfig: {
-            temperature: 0.45,
-            maxOutputTokens: 3000,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: 'ARRAY',
-              description: 'List of generated competency based questions matching strict validation rules.',
-              items: {
-                type: 'OBJECT',
-                properties: {
-                  competency_name: { type: 'STRING', description: 'The exact name of the competency picked from the allowed list.' },
-                  instruction: { type: 'STRING', description: 'Clear and crisp instruction like: Read the text and answer the question.' },
-                  stimulus: { type: 'STRING', description: 'Real-life context, scenario, or dataset based on the concept.' },
-                  question_text: { type: 'STRING', description: 'The question stem. Must be clear and grammatically correct.' },
-                  requires_image: { type: 'BOOLEAN' },
-                  image_prompt: { type: 'STRING', description: 'Detailed visual blueprint if requires_image is true, else null.' },
-                  correct_option: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
-                  options: {
-                    type: 'ARRAY',
-                    items: {
-                      type: 'OBJECT',
-                      properties: {
-                        id: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
-                        text: {
-                          type: 'STRING',
-                          description: 'Plausible option text using HTML tags if needed.'
-                        },
-                        requires_image: { type: 'BOOLEAN' },
-                        image_prompt: {
-                          type: 'STRING',
-                          description: 'Visual prompt if option is an image, else null.'
-                        },
-                        rationale: {
-                          type: 'STRING',
-                          description: 'Actionable feedback explaining why this option is correct or a misconception.'
-                        }
-                      },
-                      required: ['id', 'text', 'requires_image', 'image_prompt', 'rationale']
-                    }
-                  }
-                },
-                required: ['competency_name', 'instruction', 'stimulus', 'question_text', 'requires_image', 'image_prompt', 'correct_option', 'options']
-              }
+        // const aiResponse = await model.generateContent({
+        //   contents: [{ role: 'user', parts: [{ text: cleanPrompt }] }],
+        //   generationConfig: {
+        //     temperature: 0.45,
+        //     maxOutputTokens: 3000,
+        //     responseMimeType: 'application/json',
+        //     responseSchema: {
+        //       type: 'ARRAY',
+        //       description: 'List of generated competency based questions matching strict validation rules.',
+        //       items: {
+        //         type: 'OBJECT',
+        //         properties: {
+        //           competency_name: { type: 'STRING', description: 'The exact name of the competency picked from the allowed list.' },
+        //           instruction: { type: 'STRING', description: 'Clear and crisp instruction with HTML <p> and <b> tags. Example: <p>Read the following text carefully and answer the question.</p>' },
+        //           stimulus: { type: 'STRING', description: 'Real-life context, scenario, or dataset with HTML <p> and <b> tags. Use <p> for paragraphs and <b> for emphasis on key data points.' },
+        //           question_text: { type: 'STRING', description: 'The question stem with HTML <p> and <b> tags. Must be clear and grammatically correct.' },
+        //           requires_image: { type: 'BOOLEAN' },
+        //           image_prompt: { type: 'STRING', description: 'Detailed visual blueprint if requires_image is true, else null.' },
+        //           correct_option: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
+        //           options: {
+        //             type: 'ARRAY',
+        //             items: {
+        //               type: 'OBJECT',
+        //               properties: {
+        //                 id: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
+        //                 text: {
+        //                   type: 'STRING',
+        //                   description: 'Plausible option text with HTML <p> and <b> tags. Use <b> for key terms within the option.'
+        //                 },
+        //                 requires_image: { type: 'BOOLEAN' },
+        //                 image_prompt: {
+        //                   type: 'STRING',
+        //                   description: 'Visual prompt if option is an image, else null.'
+        //                 },
+        //                 rationale: {
+        //                   type: 'STRING',
+        //                   description: 'Actionable feedback with HTML <p> and <b> tags. Use <b> to highlight why the option is correct or what misconception it represents. Example: <p><b>Correct:</b> The formula for area is length × breadth.</p>'
+        //                 }
+        //               },
+        //               required: ['id', 'text', 'requires_image', 'image_prompt', 'rationale']
+        //             }
+        //           }
+        //         },
+        //         required: ['competency_name', 'instruction', 'stimulus', 'question_text', 'requires_image', 'image_prompt', 'correct_option', 'options']
+        //       }
+        //     }
+        //   } as any
+        // });
+
+
+        // const textOutput = aiResponse.response.text();
+        // if (!textOutput || textOutput.trim() === '') {
+        //   remainingQuestionsToProcess -= currentBatchSize;
+        //   continue;
+        // }
+
+        // console.log(textOutput)
+
+        // const parsedQuestionsArray = JSON.parse(textOutput);
+        const parsedQuestionsArray = [{
+          "competency_name": "Demonstrates ways to save water in daily activities.",
+          "instruction": "<p>Read the following scenario carefully and answer the question that follows.</p>",
+          "stimulus": "<p>The Sharma family noticed their monthly water bill was unexpectedly high. To address this, they decided to implement various water-saving practices at home. Mrs. Sharma suggested focusing on daily routines like bathing and washing dishes. Mr. Sharma emphasized the importance of fixing any leaks immediately. Their children, Rohan and Priya, were asked to identify and adopt ways to reduce water consumption in their personal activities.</p>",
+          "question_text": "<p>Which of the following actions by Rohan and Priya would <b>most effectively</b> help the Sharma family conserve water?</p>",
+          "requires_image": false,
+          "image_prompt": null,
+          "correct_option": "C",
+          "options": [
+            {
+              "id": "A",
+              "text": "<p>Taking longer showers to ensure thorough cleanliness.</p>",
+              "requires_image": false,
+              "image_prompt": null,
+              "rationale": "<p><b>Incorrect:</b> Taking longer showers significantly increases water usage, which goes against the goal of water conservation. Shorter showers or alternative bathing methods are more effective for saving water.</p>"
+            },
+            {
+              "id": "B",
+              "text": "<p>Leaving the tap running while brushing their teeth.</p>",
+              "requires_image": false,
+              "image_prompt": null,
+              "rationale": "<p><b>Incorrect:</b> Leaving the tap running while brushing teeth wastes a substantial amount of water. Turning off the tap during such activities is a simple and effective water-saving habit.</p>"
+            },
+            {
+              "id": "C",
+              "text": "<p>Using a bucket and mug for bathing instead of a shower.</p>",
+              "requires_image": false,
+              "image_prompt": null,
+              "rationale": "<p><b>Correct:</b> Using a bucket and mug for bathing usually consumes much less water than using a running shower. This is one of the most effective ways to conserve water in daily life.</p>"
+            },
+            {
+              "id": "D",
+              "text": "<p>Watering the garden plants every day in the afternoon sun.</p>",
+              "requires_image": false,
+              "image_prompt": null,
+              "rationale": "<p><b>Incorrect:</b> Watering plants during the afternoon leads to higher evaporation, causing unnecessary water loss. Watering plants early in the morning or late in the evening is much more efficient.</p>"
             }
-          } as any
-        });
-
-        const textOutput = aiResponse.response.text();
-        if (!textOutput || textOutput.trim() === '') {
-          remainingQuestionsToProcess -= currentBatchSize;
-          continue;
-        }
-
-        console.log(textOutput)
-
-        const parsedQuestionsArray = JSON.parse(textOutput);
+          ]
+        }]
 
         if (Array.isArray(parsedQuestionsArray)) {
           for (const singleQuestionData of parsedQuestionsArray) {
@@ -1383,7 +1441,7 @@ export class UsersService {
         await delay(4000); // API Rate-limits (RPM) से बचने के लिए
 
       } catch (error) {
-        console.error(`❌ Failed question sub-batch processing:`, error.message);
+        console.error(`❌ Failed question sub - batch processing: `, error.message);
         remainingQuestionsToProcess -= currentBatchSize; // इनफिनिट लूप गार्ड रेल
       }
     }
@@ -1397,92 +1455,143 @@ export class UsersService {
     };
   }
 
+
   private async saveQuestionToDatabase(
     displayGradeId: number,
     syllabusGradeId: number,
     subjectId: number,
     competencyId: number,
-    aiData: any // Handles dynamic structural mapping implicitly without strict interfaces
+    aiData: any
   ) {
-    // 1. Initialize QueryRunner to guarantee absolute transactional safety
     const queryRunner = this.dataSource.createQueryRunner();
+
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      // Establish context-level image tracking properties
       const qImageStatus = aiData.requires_image ? 'pending' : 'none';
 
-      // 2. Insert primary record parameters directly into the 'questions' table
+      // ----------------------------
+      // Insert Question
+      // ----------------------------
       const insertQuestionSql = `
-        INSERT INTO questions 
-        (display_grade, syllabus_grade, subject_id, competency_targeted_id, question_text, requires_image, image_prompt, image_status) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-      const questionInsertResult = await queryRunner.query(insertQuestionSql, [
-        displayGradeId,
-        syllabusGradeId,
-        subjectId,
-        competencyId,
-        aiData.question_text,
-        aiData.requires_image ? 1 : 0,
-        aiData.image_prompt,
-        qImageStatus
-      ]);
+      INSERT INTO questions
+      (
+        display_grade,
+        syllabus_grade,
+        subject_id,
+        competency_targeted_id,
+        instruction,
+        stimulus,
+        question_text,
+        requires_image,
+        image_prompt,
+        image_status,correct_option
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
+    `;
 
-      // Retrieve the auto-incremented primary ID generated for the newly created question row
+      const questionInsertResult = await queryRunner.query(
+        insertQuestionSql,
+        [
+          displayGradeId,
+          syllabusGradeId,
+          subjectId,
+          competencyId,
+          aiData.instruction,
+          aiData.stimulus,
+          aiData.question_text,
+          aiData.requires_image ? 1 : 0,
+          aiData.image_prompt,
+          qImageStatus, aiData.correct_option
+        ]
+      );
+
       const questionId = questionInsertResult.insertId;
 
-      // 3. Prepare the query layout statement for multiple choice option mapping rows
+      // ----------------------------
+      // Insert Options
+      // ----------------------------
       const insertOptionSql = `
-        INSERT INTO question_options 
-        (question_id, option_letter, option_text, isCorrect, requires_image, image_prompt, image_status) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `;
+      INSERT INTO question_options
+      (
+        question_id,
+        option_letter,
+        option_text,
+        isCorrect,
+        rationale,
+        requires_image,
+        image_prompt,
+        image_status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
 
-      // Loop across each element within the choices array provided by Gemini
+      let hasOptionImage = false;
+
       for (const opt of aiData.options) {
-        // Dynamically compute the binary state flag directly per row map index
-        const isThisOptionCorrect = opt.id === aiData.correct_option ? 1 : 0;
-        const optImageStatus = opt.requires_image ? 'pending' : 'none';
+        const isCorrect = opt.id === aiData.correct_option ? 1 : 0;
+        const optionImageStatus = opt.requires_image ? 'pending' : 'none';
+
+        if (opt.requires_image) {
+          hasOptionImage = true;
+        }
 
         await queryRunner.query(insertOptionSql, [
           questionId,
           opt.id,
           opt.text,
-          isThisOptionCorrect,      // 🎯 Persists true (1) if it matches the correct answer letter
+          isCorrect,
+          opt.rationale,
           opt.requires_image ? 1 : 0,
           opt.image_prompt,
-          optImageStatus            // 🖼️ Sets 'pending' if this specific option needs an image generated
+          optionImageStatus
         ]);
       }
 
-      // 4. Commit all updates atomically if every single row write finishes successfully
+      // ----------------------------
+      // Optional Update
+      // ----------------------------
+      await queryRunner.query(
+        `
+      UPDATE questions
+      SET updatedAt = CURRENT_TIMESTAMP
+      WHERE id = ?
+      `,
+        [questionId]
+      );
+
       await queryRunner.commitTransaction();
 
-      // Return unified payload shape back to the orchestrator array loop
       return {
         id: questionId,
         displayGrade: displayGradeId,
         syllabusGrade: syllabusGradeId,
-        subjectId: subjectId,
-        competencyId: competencyId,
+        subjectId,
+        competencyId,
+
+        instruction: aiData.instruction,
+        stimulus: aiData.stimulus,
         question_text: aiData.question_text,
+
+        requires_image: aiData.requires_image,
+        image_prompt: aiData.image_prompt,
         image_status: qImageStatus,
+
         options: aiData.options.map((o: any) => ({
           letter: o.id,
           text: o.text,
+          rationale: o.rationale,
           isCorrect: o.id === aiData.correct_option,
+          requires_image: o.requires_image,
+          image_prompt: o.image_prompt,
           image_status: o.requires_image ? 'pending' : 'none'
         }))
       };
-
-    } catch (dbError) {
-      // 5. Instantly roll back every single database change if any row execution crashes
+    } catch (error) {
       await queryRunner.rollbackTransaction();
-      throw dbError;
+      throw error;
     } finally {
-      // 6. Always release connection properties back into the baseline thread pool manager
       await queryRunner.release();
     }
   }

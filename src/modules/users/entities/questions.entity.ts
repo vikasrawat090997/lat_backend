@@ -118,4 +118,18 @@ export class Question {
         type: 'timestamp',
     })
     updatedAt: Date;
+
+    @Column({
+        type: 'text',
+        nullable: true,
+        comment: 'Instruction shown before the question',
+    })
+    instruction: string;
+
+    @Column({
+        type: 'text',
+        nullable: true,
+        comment: 'Scenario, passage, case study, observation or context for the question',
+    })
+    stimulus: string;
 }
