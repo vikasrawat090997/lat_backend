@@ -1036,14 +1036,19 @@ export class UsersService {
 
     // 🎯 Step B: Look up targeted question generation counts from configuration database mapping table
     const configQuery = `
-        SELECT mandatory_question_count as count FROM grade_subject_question_mapping where grade_id = ? and subject_id = ?;
-      `;
+      SELECT mandatory_question_count as count FROM grade_subject_question_mapping where grade_id = ? and subject_id = ?;
+    `;
     const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
+    const dbCount = (configResult && configResult.length > 0) ? Number(configResult[0].count) : 1;
 
-    // Fallback to 1 question per competency if no explicit mapping configuration row exists
-    let targetedGenCount = (configResult && configResult.length > 0)
-      ? Number(configResult[0].count)
-      : 1;
+    let targetedGenCount = dbCount;
+
+    if (dto.count && dto.count > 0) {
+      if (dto.count > dbCount) {
+        throw new BadRequestException(`Requested question count (${dto.count}) exceeds the database limit (${dbCount}).`);
+      }
+      targetedGenCount = dto.count;
+    }
 
     const model = this.aiClient.getGenerativeModel({
       model: 'gemini-2.5-flash',
@@ -1235,8 +1240,6 @@ export class UsersService {
       subjectId: dto.subjectId,
       term: dto.term
     });
-    console.log(competencyData)
-    return
     let targetCompetencies = [];
 
     if (!dto.competencyIds || dto.competencyIds.length === 0) {
@@ -1257,10 +1260,16 @@ export class UsersService {
       WHERE grade_id = ? AND subject_id = ?;
     `;
     const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
+    const dbCount = (configResult && configResult.length > 0) ? Number(configResult[0].count) : 1;
 
-    let targetedGenCount = (configResult && configResult.length > 0)
-      ? Number(configResult[0].count)
-      : 1;
+    let targetedGenCount = dbCount;
+
+    if (dto.count && dto.count > 0) {
+      if (dto.count > dbCount) {
+        throw new BadRequestException(`Requested question count (${dto.count}) exceeds the database limit (${dbCount}).`);
+      }
+      targetedGenCount = dto.count;
+    }
 
     // 🎯 SYSTEM INSTRUCTIONS: दस्तावेज़ के सभी नियमों को यहाँ समाहित किया गया है
     // const model = this.aiClient.getGenerativeModel({
