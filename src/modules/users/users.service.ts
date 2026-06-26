@@ -131,6 +131,270 @@ export class UsersService {
       data: result,
     };
   }
+  async getGradesGradeGroup(gradeGroupId: number) {
+    const query = `
+    SELECT
+      id,
+      name
+    FROM grademaster
+    where id not  in (1,2,3)
+    and gradeGroupId = ? and status = 1
+    ORDER BY id ASC
+  `;
+
+    const result = await this.dataSource.query(query, [gradeGroupId]);
+
+    return {
+      success: true,
+      data: result,
+    };
+  }
+  async getQuestionListB(filters: {
+    search?: string;
+    grade?: string;
+    subject?: string;
+    competency?: string;
+    status?: string;
+    page: number;
+    limit: number;
+  }) {
+    const { search, grade, subject, competency, status, page, limit } = filters;
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (search) {
+      conditions.push(`(q.question_Text LIKE ? OR CAST(q.id AS CHAR) LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    if (grade) {
+      conditions.push(`q.display_Grade = ?`);
+      params.push(Number(grade));
+    }
+    if (subject) {
+      conditions.push(`q.subject_Id = ?`);
+      params.push(Number(subject));
+    }
+    if (status) {
+      conditions.push(`q.status = ?`);
+      params.push(Number(status));
+    }
+    if (competency) {
+      conditions.push(`q.competency_Targeted_Id = ?`);
+      params.push(Number(competency));
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const dataQuery = `
+      SELECT
+        q.id,
+        q.question_Text,
+        q.image_Url,
+        q.status,
+        q.instruction,
+        CAST(q.id AS CHAR) AS questionId,
+        gm.name AS grade,
+        sm.name AS subject,
+        cm.name AS competency
+      FROM questions q
+      LEFT JOIN grademaster gm ON gm.id = q.display_Grade
+      LEFT JOIN subjectmaster sm ON sm.id = q.subject_Id
+      LEFT JOIN competencymaster cm ON cm.id = q.competency_Targeted_Id
+      ${where}
+      ORDER BY q.id DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const countQuery = `
+      SELECT COUNT(*) as total FROM questions q ${where}
+    `;
+
+    const [rows, countResult] = await Promise.all([
+      this.dataSource.query(dataQuery, [...params, limit, offset]),
+      this.dataSource.query(countQuery, params),
+    ]);
+
+    const total = Number(countResult[0]?.total ?? 0);
+
+    return {
+      success: true,
+      questions: rows.map((r: any) => ({
+        id: Number(r.id),
+        questionId: String(r.questionId),
+        grade: r.grade || '',
+        subject: r.subject || '',
+        competency: r.competency || '',
+        instruction: r.instruction || '',
+        stimulus: r.stimulus || '',
+        questionText: r.question_Text || '',
+        status: r.status === 1 ? 'Active' : 'Inactive',
+        imageUrl: r.image_Url || null,
+        answerExplanation: r.answerExplanation || '',
+        createdAt: r.createdAt || '',
+        updatedAt: r.updatedAt || '',
+        options: (r.options || []).map((o: any) => ({
+          id: o.id,
+          text: o.text,
+          isCorrect: o.isCorrect,
+          imageUrl: o.image_Url || null,
+          rationale: o.rationale || '',
+        })),
+      })),
+      total: Number(total),
+      page: Number(page),
+      limit: Number(limit),
+
+    };
+  }
+
+  async getQuestionList(filters: {
+    search?: string;
+    grade?: string;
+    subject?: string;
+    competency?: string;
+    status?: string;
+    page: number;
+    limit: number;
+  }) {
+    const { search, grade, subject, competency, status, page, limit } = filters;
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (search) {
+      conditions.push(`(q.question_Text LIKE ? OR CAST(q.id AS CHAR) LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    if (grade) {
+      conditions.push(`q.display_Grade = ?`);
+      params.push(Number(grade));
+    }
+
+    if (subject) {
+      conditions.push(`q.subject_Id = ?`);
+      params.push(Number(subject));
+    }
+
+    if (status !== undefined && status !== '') {
+      conditions.push(`q.status = ?`);
+      params.push(Number(status));
+    }
+
+    if (competency) {
+      conditions.push(`q.competency_Targeted_Id = ?`);
+      params.push(Number(competency));
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const dataQuery = `
+    SELECT
+        q.id,
+        q.question_Text,
+        q.instruction,
+        q.stimulus,
+        q.image_Url,
+        q.status,
+        q.createdAt,
+        q.updatedAt,
+
+        CAST(q.id AS CHAR) AS questionId,
+
+        gm.name AS grade,
+        sm.name AS subject,
+        cm.name AS competency,
+
+        qo.id AS optionId,
+        qo.option_letter,
+        qo.option_text,
+        qo.isCorrect,
+        qo.image_url AS optionImageUrl,
+        qo.rationale
+
+    FROM questions q
+    LEFT JOIN grademaster gm
+        ON gm.id=q.display_Grade
+
+    LEFT JOIN subjectmaster sm
+        ON sm.id=q.subject_Id
+
+    LEFT JOIN competencymaster cm
+        ON cm.id=q.competency_Targeted_Id
+
+    LEFT JOIN question_options qo
+        ON qo.question_id=q.id
+
+    ${where}
+
+    ORDER BY q.id DESC, qo.option_letter ASC
+    LIMIT ? OFFSET ?
+  `;
+
+    const countQuery = `
+    SELECT COUNT(*) total
+    FROM questions q
+    ${where}
+  `;
+
+    const [rows, countResult] = await Promise.all([
+      this.dataSource.query(dataQuery, [...params, limit, offset]),
+      this.dataSource.query(countQuery, params),
+    ]);
+
+    const total = Number(countResult[0]?.total || 0);
+
+    // Group question + options
+    const questionMap = new Map<number, any>();
+
+    for (const row of rows) {
+      if (!questionMap.has(row.id)) {
+        questionMap.set(row.id, {
+          id: Number(row.id),
+          questionId: String(row.questionId),
+          grade: row.grade ?? '',
+          subject: row.subject ?? '',
+          competency: row.competency ?? '',
+          instruction: row.instruction ?? '',
+          stimulus: row.stimulus ?? '',
+          questionText: row.question_Text ?? '',
+          status:
+            row.status === 1
+              ? 'Active'
+              : row.status === 2
+                ? 'Draft'
+                : 'Inactive',
+          imageUrl: row.image_Url ?? null,
+          answerExplanation: '',
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          options: [],
+        });
+      }
+
+      if (row.optionId) {
+        questionMap.get(row.id).options.push({
+          id: row.option_letter,
+          optionId: Number(row.optionId),
+          text: row.option_text,
+          isCorrect: row.isCorrect === 1,
+          imageUrl: row.optionImageUrl,
+          rationale: row.rationale ?? '',
+        });
+      }
+    }
+
+    return {
+      success: true,
+      questions: Array.from(questionMap.values()),
+      total,
+      page: Number(page),
+      limit: Number(limit),
+    };
+  }
 
   async getSubjectList() {
     const query = `
@@ -143,6 +407,23 @@ export class UsersService {
       ORDER BY name ASC
     `;
     const result = await this.dataSource.query(query);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  async getSubjectsByGradeGroup(gradeGroupId: number) {
+    const query = `
+      SELECT
+        s.id,
+        s.name
+      FROM gradesubjectmapping gsm
+      INNER JOIN subjectmaster s ON s.id = gsm.subjectId
+      WHERE gsm.gradeGroupId = ? AND gsm.status = 1 AND s.status = 1
+      ORDER BY s.name ASC
+    `;
+    const result = await this.dataSource.query(query, [gradeGroupId]);
     return {
       success: true,
       data: result,
@@ -1497,9 +1778,9 @@ export class UsersService {
         question_text,
         requires_image,
         image_prompt,
-        image_status,correct_option
+        image_status,correct_option,status
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)
     `;
 
       const questionInsertResult = await queryRunner.query(
@@ -1514,7 +1795,8 @@ export class UsersService {
           aiData.question_text,
           aiData.requires_image ? 1 : 0,
           aiData.image_prompt,
-          qImageStatus, aiData.correct_option
+          qImageStatus, aiData.correct_option,
+          2
         ]
       );
 

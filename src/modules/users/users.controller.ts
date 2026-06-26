@@ -35,10 +35,27 @@ export class UsersController {
     );
   }
 
+  // @UseGuards(JwtAuthGuard)
+  @Get('grades/grade-group/:id')
+  async getGradesGradeGroup(
+    @Param('id') id: number,
+  ) {
+    return this.usersService.getGradesGradeGroup(
+      id
+    );
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('subjects')
   async getSubjectList() {
     return this.usersService.getSubjectList();
+  }
+
+  @Get('subjects/grade-group/:id')
+  async getSubjectsByGradeGroup(
+    @Param('id') id: number,
+  ) {
+    return this.usersService.getSubjectsByGradeGroup(id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -203,6 +220,35 @@ export class UsersController {
   @Post('competencies-list')
   async getCompetenciesList(@Body() dto: GetCompetenciesDto) {
     return await this.usersService.fetchCompetencies(dto);
+  }
+
+  // @UseGuards(JwtAuthGuard)
+  @Get('questions')
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'grade', required: false, type: String })
+  @ApiQuery({ name: 'subject', required: false, type: String })
+  @ApiQuery({ name: 'competency', required: false, type: String })
+  @ApiQuery({ name: 'status', required: false, type: String })
+  async getQuestionList(
+    @Query('search') search?: string,
+    @Query('grade') grade?: string,
+    @Query('subject') subject?: string,
+    @Query('competency') competency?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.usersService.getQuestionList({
+      search,
+      grade,
+      subject,
+      competency,
+      status,
+      page: Number(page) || 1,
+      limit: Number(limit) || 10,
+    });
   }
 
   @Post('generate-batch')
