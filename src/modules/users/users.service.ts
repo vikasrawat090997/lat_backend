@@ -20,7 +20,12 @@ import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GenerateQuestionsDto } from './dto/generate-questions.dto';
-import { CheckExamDto, StartExamDto, SubmitExamDto, GetExamQuestionsDto } from './dto/exam.dto';
+import {
+  CheckExamDto,
+  StartExamDto,
+  SubmitExamDto,
+  GetExamQuestionsDto,
+} from './dto/exam.dto';
 
 @Injectable()
 export class UsersService {
@@ -28,11 +33,8 @@ export class UsersService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly dataSource: DataSource,
-
   ) {
-    this.aiClient = new GoogleGenerativeAI(
-      process.env.GEMINI_API_KEY!,
-    );
+    this.aiClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   }
 
   async login(dto: LoginDto) {
@@ -55,27 +57,18 @@ export class UsersService {
       LIMIT 1
     `;
 
-    const users = await this.dataSource.query(query, [
-      dto.username,
-    ]);
+    const users = await this.dataSource.query(query, [dto.username]);
 
     if (!users.length) {
-      throw new UnauthorizedException(
-        'Invalid username or password',
-      );
+      throw new UnauthorizedException('Invalid username or password');
     }
 
     const user = users[0];
 
-    const passwordMatched = await bcrypt.compare(
-      dto.password,
-      user.password,
-    );
+    const passwordMatched = await bcrypt.compare(dto.password, user.password);
 
     if (!passwordMatched) {
-      throw new UnauthorizedException(
-        'Invalid username or password',
-      );
+      throw new UnauthorizedException('Invalid username or password');
     }
 
     const payload = {
@@ -122,7 +115,7 @@ export class UsersService {
       id,
       name
     FROM grademaster
-    where id not  in (1,2,3)
+    where id not  in (1,2,3) and status != '0'
     ORDER BY id ASC
   `;
 
@@ -247,7 +240,6 @@ export class UsersService {
       total: Number(total),
       page: Number(page),
       limit: Number(limit),
-
     };
   }
 
@@ -407,7 +399,8 @@ export class UsersService {
     page: number;
     limit: number;
   }) {
-    const { search, grade, subject, competency, status, termId, page, limit } = filters;
+    const { search, grade, subject, competency, status, termId, page, limit } =
+      filters;
 
     const offset = (page - 1) * limit;
 
@@ -444,9 +437,7 @@ export class UsersService {
       params.push(Number(termId));
     }
 
-    const where = conditions.length
-      ? `WHERE ${conditions.join(' AND ')}`
-      : '';
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     /**
      * Total Count
@@ -472,7 +463,6 @@ export class UsersService {
     const [countResult, idRows] = await Promise.all([
       this.dataSource.query(countQuery, params),
       this.dataSource.query(questionIdQuery, [...params, limit, offset]),
-
     ]);
     const total = Number(countResult[0]?.total ?? 0);
 
@@ -626,7 +616,7 @@ export class UsersService {
         s.name
       FROM gradesubjectmapping gsm
       INNER JOIN subjectmaster s ON s.id = gsm.subjectId
-      WHERE gsm.gradeGroupId = ? AND gsm.status = 1 AND s.status = 1
+      WHERE gsm.gradeId = ? AND gsm.status = 1 AND s.status = 1
       ORDER BY s.name ASC
     `;
     const result = await this.dataSource.query(query, [gradeGroupId]);
@@ -684,20 +674,24 @@ export class UsersService {
 
   async getDashboardSummary() {
     const [{ count: totalTeachers }] = await this.dataSource.query(
-      'SELECT count(id) as count FROM teachermaster WHERE status = 1'
+      'SELECT count(id) as count FROM teachermaster WHERE status = 1',
     );
     const [{ count: totalStudents }] = await this.dataSource.query(
-      'SELECT count(id) as count FROM studentmaster WHERE status = 1'
+      'SELECT count(id) as count FROM studentmaster WHERE status = 1',
     );
     const [{ count: totalQuestionsGenerated }] = await this.dataSource.query(
-      'SELECT count(id) as count FROM questions'
+      'SELECT count(id) as count FROM questions',
     );
 
     let totalQuestionsAttemptedLastYear = 0;
-    const attemptTables = await this.dataSource.query("SHOW TABLES LIKE '%attempt%'");
+    const attemptTables = await this.dataSource.query(
+      "SHOW TABLES LIKE '%attempt%'",
+    );
     if (attemptTables.length > 0) {
       const tableName = Object.values(attemptTables[0])[0];
-      const [{ count }] = await this.dataSource.query(`SELECT count(*) as count FROM ${tableName}`);
+      const [{ count }] = await this.dataSource.query(
+        `SELECT count(*) as count FROM ${tableName}`,
+      );
       totalQuestionsAttemptedLastYear = Number(count);
     } else {
       totalQuestionsAttemptedLastYear = 18520;
@@ -718,17 +712,17 @@ export class UsersService {
   async getTeacherDashboard(userId: number) {
     const [{ totalStudents }] = await this.dataSource.query(
       'SELECT count(id) as totalStudents FROM studentmaster WHERE createdBy = ?',
-      [userId]
+      [userId],
     );
 
     const [{ activeStudents }] = await this.dataSource.query(
       'SELECT count(id) as activeStudents FROM studentmaster WHERE createdBy = ? AND status = 1',
-      [userId]
+      [userId],
     );
 
     const [{ inactiveStudents }] = await this.dataSource.query(
       'SELECT count(id) as inactiveStudents FROM studentmaster WHERE createdBy = ? AND status = 0',
-      [userId]
+      [userId],
     );
 
     return {
@@ -743,7 +737,13 @@ export class UsersService {
     };
   }
 
-  async getTeacherList(page: number, limit: number, search?: string, regionId?: string, schoolId?: string) {
+  async getTeacherList(
+    page: number,
+    limit: number,
+    search?: string,
+    regionId?: string,
+    schoolId?: string,
+  ) {
     const offset = (page - 1) * limit;
     let query = `
       SELECT
@@ -824,7 +824,18 @@ export class UsersService {
     await queryRunner.startTransaction();
 
     try {
-      const { firstName, lastName, mobileNo, email, empCode, udisecode, gender, address, gradeId, subjectId } = dto;
+      const {
+        firstName,
+        lastName,
+        mobileNo,
+        email,
+        empCode,
+        udisecode,
+        gender,
+        address,
+        gradeId,
+        subjectId,
+      } = dto;
 
       const username = `${firstName.charAt(0)}${mobileNo.substring(0, 4)}_${empCode}`;
       const rawPassword = `${firstName.substring(0, 2)}${mobileNo.slice(-4)}${email.substring(0, 4)}`;
@@ -833,23 +844,35 @@ export class UsersService {
       const userInsertResult = await queryRunner.query(
         `INSERT INTO usermaster (roleId, username, firstName, lastName, email, mobileNo, password, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [2, username, firstName, lastName, email, mobileNo, password, 1]
+        [2, username, firstName, lastName, email, mobileNo, password, 1],
       );
       const userId = userInsertResult.insertId;
 
       const schoolResult = await queryRunner.query(
         `SELECT id FROM schoolmaster WHERE udiseCode = ? AND status = 1 LIMIT 1`,
-        [udisecode]
+        [udisecode],
       );
       if (!schoolResult || schoolResult.length === 0) {
-        throw new BadRequestException(`School with UDISE code ${udisecode} not found`);
+        throw new BadRequestException(
+          `School with UDISE code ${udisecode} not found`,
+        );
       }
       const schoolId = schoolResult[0].id;
 
       await queryRunner.query(
         `INSERT INTO teachermaster (userId, employeeCode, schoolId, udiseCode, gender, address, status, gradeId, subjectId)
          VALUES (?, ?, ?, ?, ?, ?, ?,?,?)`,
-        [userId, empCode, schoolId, udisecode, gender, address, 1, gradeId, subjectId]
+        [
+          userId,
+          empCode,
+          schoolId,
+          udisecode,
+          gender,
+          address,
+          1,
+          gradeId,
+          subjectId,
+        ],
       );
 
       await queryRunner.commitTransaction();
@@ -878,7 +901,7 @@ export class UsersService {
     const results = {
       successCount: 0,
       failedCount: 0,
-      errors: []
+      errors: [],
     };
 
     let isFirstRow = true;
@@ -919,7 +942,13 @@ export class UsersService {
         dto.gradeId = getVal(rowValues[9]);
         dto.subjectId = getVal(rowValues[10]);
 
-        if (!dto.firstName || !dto.mobileNo || !dto.empCode || !dto.udisecode || !dto.email) {
+        if (
+          !dto.firstName ||
+          !dto.mobileNo ||
+          !dto.empCode ||
+          !dto.udisecode ||
+          !dto.email
+        ) {
           throw new Error(`Missing required fields`);
         }
 
@@ -934,7 +963,7 @@ export class UsersService {
     return {
       success: true,
       message: 'Bulk upload completed',
-      data: results
+      data: results,
     };
   }
 
@@ -946,42 +975,96 @@ export class UsersService {
     try {
       const userCheck = await queryRunner.query(
         `SELECT id FROM usermaster WHERE id = ? LIMIT 1`,
-        [userId]
+        [userId],
       );
       if (!userCheck || userCheck.length === 0) {
-        throw new BadRequestException(`Teacher with user ID ${userId} not found`);
+        throw new BadRequestException(
+          `Teacher with user ID ${userId} not found`,
+        );
       }
 
-      const { firstName, lastName, mobileNo, email, empCode, udisecode, gender, address, gradeId, subjectId } = dto;
+      const {
+        firstName,
+        lastName,
+        mobileNo,
+        email,
+        empCode,
+        udisecode,
+        gender,
+        address,
+        gradeId,
+        subjectId,
+      } = dto;
 
-      if (firstName !== undefined || lastName !== undefined || email !== undefined || mobileNo !== undefined) {
+      if (
+        firstName !== undefined ||
+        lastName !== undefined ||
+        email !== undefined ||
+        mobileNo !== undefined
+      ) {
         let updateQuery = `UPDATE usermaster SET `;
         const params: any[] = [];
-        if (firstName !== undefined) { updateQuery += `firstName = ?, `; params.push(firstName); }
-        if (lastName !== undefined) { updateQuery += `lastName = ?, `; params.push(lastName); }
-        if (email !== undefined) { updateQuery += `email = ?, `; params.push(email); }
-        if (mobileNo !== undefined) { updateQuery += `mobileNo = ?, `; params.push(mobileNo); }
+        if (firstName !== undefined) {
+          updateQuery += `firstName = ?, `;
+          params.push(firstName);
+        }
+        if (lastName !== undefined) {
+          updateQuery += `lastName = ?, `;
+          params.push(lastName);
+        }
+        if (email !== undefined) {
+          updateQuery += `email = ?, `;
+          params.push(email);
+        }
+        if (mobileNo !== undefined) {
+          updateQuery += `mobileNo = ?, `;
+          params.push(mobileNo);
+        }
         updateQuery = updateQuery.slice(0, -2) + ` WHERE id = ?`;
         params.push(userId);
         await queryRunner.query(updateQuery, params);
       }
 
-      if (empCode !== undefined || udisecode !== undefined || gender !== undefined || address !== undefined || gradeId !== undefined || subjectId !== undefined) {
+      if (
+        empCode !== undefined ||
+        udisecode !== undefined ||
+        gender !== undefined ||
+        address !== undefined ||
+        gradeId !== undefined ||
+        subjectId !== undefined
+      ) {
         let updateQuery = `UPDATE teachermaster SET `;
         const params: any[] = [];
-        if (empCode !== undefined) { updateQuery += `employeeCode = ?, `; params.push(empCode); }
-        if (gender !== undefined) { updateQuery += `gender = ?, `; params.push(gender); }
-        if (address !== undefined) { updateQuery += `address = ?, `; params.push(address); }
-        if (gradeId !== undefined) { updateQuery += `gradeId = ?, `; params.push(gradeId); }
-        if (subjectId !== undefined) { updateQuery += `subjectId = ?, `; params.push(subjectId); }
+        if (empCode !== undefined) {
+          updateQuery += `employeeCode = ?, `;
+          params.push(empCode);
+        }
+        if (gender !== undefined) {
+          updateQuery += `gender = ?, `;
+          params.push(gender);
+        }
+        if (address !== undefined) {
+          updateQuery += `address = ?, `;
+          params.push(address);
+        }
+        if (gradeId !== undefined) {
+          updateQuery += `gradeId = ?, `;
+          params.push(gradeId);
+        }
+        if (subjectId !== undefined) {
+          updateQuery += `subjectId = ?, `;
+          params.push(subjectId);
+        }
 
         if (udisecode !== undefined) {
           const schoolResult = await queryRunner.query(
             `SELECT id FROM schoolmaster WHERE udiseCode = ? AND status = 1 LIMIT 1`,
-            [udisecode]
+            [udisecode],
           );
           if (!schoolResult || schoolResult.length === 0) {
-            throw new BadRequestException(`School with UDISE code ${udisecode} not found`);
+            throw new BadRequestException(
+              `School with UDISE code ${udisecode} not found`,
+            );
           }
           updateQuery += `udiseCode = ?, schoolId = ?, `;
           params.push(udisecode, schoolResult[0].id);
@@ -1018,19 +1101,21 @@ export class UsersService {
     try {
       const userCheck = await queryRunner.query(
         `SELECT id FROM usermaster WHERE id = ? LIMIT 1`,
-        [userId]
+        [userId],
       );
       if (!userCheck || userCheck.length === 0) {
-        throw new BadRequestException(`Teacher with user ID ${userId} not found`);
+        throw new BadRequestException(
+          `Teacher with user ID ${userId} not found`,
+        );
       }
 
-      await queryRunner.query(
-        `UPDATE usermaster SET status = ? WHERE id = ?`,
-        [status, userId]
-      );
+      await queryRunner.query(`UPDATE usermaster SET status = ? WHERE id = ?`, [
+        status,
+        userId,
+      ]);
       await queryRunner.query(
         `UPDATE teachermaster SET status = ? WHERE userId = ?`,
-        [status, userId]
+        [status, userId],
       );
 
       await queryRunner.commitTransaction();
@@ -1051,7 +1136,14 @@ export class UsersService {
     }
   }
 
-  async getStudentList(page: number, limit: number, search?: string, gradeId?: string, section?: string, status?: string) {
+  async getStudentList(
+    page: number,
+    limit: number,
+    search?: string,
+    gradeId?: string,
+    section?: string,
+    status?: string,
+  ) {
     const offset = (page - 1) * limit;
     let query = `
       SELECT
@@ -1111,7 +1203,12 @@ export class UsersService {
       query += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR sm.fatherName LIKE ? OR sm.motherName LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
       countQuery += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR sm.fatherName LIKE ? OR sm.motherName LIKE ?)`;
-      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+      countParams.push(
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+      );
     }
 
     query += ` ORDER BY u.firstName ASC LIMIT ? OFFSET ?`;
@@ -1135,7 +1232,21 @@ export class UsersService {
     await queryRunner.startTransaction();
 
     try {
-      const { firstName, lastName, parentMobile, email, rollNo, gradeId, section, udisecode, fatherName, motherName, gender, dob, address } = dto;
+      const {
+        firstName,
+        lastName,
+        parentMobile,
+        email,
+        rollNo,
+        gradeId,
+        section,
+        udisecode,
+        fatherName,
+        motherName,
+        gender,
+        dob,
+        address,
+      } = dto;
 
       const first2 = (firstName || '').substring(0, 2).toUpperCase();
       const mother2 = (motherName || '').substring(0, 2).toUpperCase();
@@ -1160,14 +1271,37 @@ export class UsersService {
       const userInsertResult = await queryRunner.query(
         `INSERT INTO usermaster (roleId, username, firstName, lastName, email, mobileNo, password, status, createdBy)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [3, username, firstName, lastName, email || null, parentMobile, password, 1, createdBy]
+        [
+          3,
+          username,
+          firstName,
+          lastName,
+          email || null,
+          parentMobile,
+          password,
+          1,
+          createdBy,
+        ],
       );
       const userId = userInsertResult.insertId;
 
       await queryRunner.query(
         `INSERT INTO studentmaster (userId, rollNo, gradeId, section, udiseCode, fatherName, motherName, gender, dob, address, createdBy, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [userId, rollNo || null, gradeId, section || null, udisecode, fatherName || null, motherName || null, gender || null, dobDbFormat, address || null, createdBy, 1]
+        [
+          userId,
+          rollNo || null,
+          gradeId,
+          section || null,
+          udisecode,
+          fatherName || null,
+          motherName || null,
+          gender || null,
+          dobDbFormat,
+          address || null,
+          createdBy,
+          1,
+        ],
       );
 
       await queryRunner.commitTransaction();
@@ -1188,7 +1322,10 @@ export class UsersService {
     }
   }
 
-  async bulkUploadStudents(file: Express.Multer.File, createdBy: number | null) {
+  async bulkUploadStudents(
+    file: Express.Multer.File,
+    createdBy: number | null,
+  ) {
     const workbook = new exceljs.Workbook();
     await workbook.xlsx.load(file.buffer as any);
     const worksheet = workbook.worksheets[0];
@@ -1196,7 +1333,7 @@ export class UsersService {
     const results = {
       successCount: 0,
       failedCount: 0,
-      errors: []
+      errors: [],
     };
 
     let isFirstRow = true;
@@ -1240,7 +1377,12 @@ export class UsersService {
         dto.dob = getVal(rowValues[12]);
         dto.address = getVal(rowValues[13]);
 
-        if (!dto.firstName || !dto.parentMobile || !dto.udisecode || !dto.gradeId) {
+        if (
+          !dto.firstName ||
+          !dto.parentMobile ||
+          !dto.udisecode ||
+          !dto.gradeId
+        ) {
           throw new Error(`Missing required fields`);
         }
 
@@ -1255,7 +1397,7 @@ export class UsersService {
     return {
       success: true,
       message: 'Bulk upload completed',
-      data: results
+      data: results,
     };
   }
 
@@ -1267,37 +1409,104 @@ export class UsersService {
     try {
       const userCheck = await queryRunner.query(
         `SELECT id FROM usermaster WHERE id = ? LIMIT 1`,
-        [userId]
+        [userId],
       );
       if (!userCheck || userCheck.length === 0) {
-        throw new BadRequestException(`Student with user ID ${userId} not found`);
+        throw new BadRequestException(
+          `Student with user ID ${userId} not found`,
+        );
       }
 
-      const { firstName, lastName, parentMobile, email, rollNo, gradeId, section, udisecode, fatherName, motherName, gender, dob, address } = dto;
+      const {
+        firstName,
+        lastName,
+        parentMobile,
+        email,
+        rollNo,
+        gradeId,
+        section,
+        udisecode,
+        fatherName,
+        motherName,
+        gender,
+        dob,
+        address,
+      } = dto;
 
-      if (firstName !== undefined || lastName !== undefined || email !== undefined || parentMobile !== undefined) {
+      if (
+        firstName !== undefined ||
+        lastName !== undefined ||
+        email !== undefined ||
+        parentMobile !== undefined
+      ) {
         let updateQuery = `UPDATE usermaster SET `;
         const params: any[] = [];
-        if (firstName !== undefined) { updateQuery += `firstName = ?, `; params.push(firstName); }
-        if (lastName !== undefined) { updateQuery += `lastName = ?, `; params.push(lastName); }
-        if (email !== undefined) { updateQuery += `email = ?, `; params.push(email); }
-        if (parentMobile !== undefined) { updateQuery += `mobileNo = ?, `; params.push(parentMobile); }
+        if (firstName !== undefined) {
+          updateQuery += `firstName = ?, `;
+          params.push(firstName);
+        }
+        if (lastName !== undefined) {
+          updateQuery += `lastName = ?, `;
+          params.push(lastName);
+        }
+        if (email !== undefined) {
+          updateQuery += `email = ?, `;
+          params.push(email);
+        }
+        if (parentMobile !== undefined) {
+          updateQuery += `mobileNo = ?, `;
+          params.push(parentMobile);
+        }
         updateQuery = updateQuery.slice(0, -2) + ` WHERE id = ?`;
         params.push(userId);
         await queryRunner.query(updateQuery, params);
       }
 
-      if (rollNo !== undefined || gradeId !== undefined || section !== undefined || udisecode !== undefined || fatherName !== undefined || motherName !== undefined || gender !== undefined || dob !== undefined || address !== undefined) {
+      if (
+        rollNo !== undefined ||
+        gradeId !== undefined ||
+        section !== undefined ||
+        udisecode !== undefined ||
+        fatherName !== undefined ||
+        motherName !== undefined ||
+        gender !== undefined ||
+        dob !== undefined ||
+        address !== undefined
+      ) {
         let updateQuery = `UPDATE studentmaster SET `;
         const params: any[] = [];
-        if (rollNo !== undefined) { updateQuery += `rollNo = ?, `; params.push(rollNo); }
-        if (gradeId !== undefined) { updateQuery += `gradeId = ?, `; params.push(gradeId); }
-        if (section !== undefined) { updateQuery += `section = ?, `; params.push(section); }
-        if (udisecode !== undefined) { updateQuery += `udiseCode = ?, `; params.push(udisecode); }
-        if (fatherName !== undefined) { updateQuery += `fatherName = ?, `; params.push(fatherName); }
-        if (motherName !== undefined) { updateQuery += `motherName = ?, `; params.push(motherName); }
-        if (gender !== undefined) { updateQuery += `gender = ?, `; params.push(gender); }
-        if (address !== undefined) { updateQuery += `address = ?, `; params.push(address); }
+        if (rollNo !== undefined) {
+          updateQuery += `rollNo = ?, `;
+          params.push(rollNo);
+        }
+        if (gradeId !== undefined) {
+          updateQuery += `gradeId = ?, `;
+          params.push(gradeId);
+        }
+        if (section !== undefined) {
+          updateQuery += `section = ?, `;
+          params.push(section);
+        }
+        if (udisecode !== undefined) {
+          updateQuery += `udiseCode = ?, `;
+          params.push(udisecode);
+        }
+        if (fatherName !== undefined) {
+          updateQuery += `fatherName = ?, `;
+          params.push(fatherName);
+        }
+        if (motherName !== undefined) {
+          updateQuery += `motherName = ?, `;
+          params.push(motherName);
+        }
+        if (gender !== undefined) {
+          updateQuery += `gender = ?, `;
+          params.push(gender);
+        }
+        if (address !== undefined) {
+          updateQuery += `address = ?, `;
+          params.push(address);
+        }
 
         if (dob !== undefined) {
           let dobClean = (dob || '').replace(/[-/]/g, '');
@@ -1308,7 +1517,8 @@ export class UsersService {
             const yyyy = dobClean.substring(4, 8);
             dobDbFormat = `${yyyy}-${mm}-${dd}`;
           }
-          updateQuery += `dob = ?, `; params.push(dobDbFormat);
+          updateQuery += `dob = ?, `;
+          params.push(dobDbFormat);
         }
 
         updateQuery = updateQuery.slice(0, -2) + ` WHERE userId = ?`;
@@ -1342,19 +1552,21 @@ export class UsersService {
     try {
       const userCheck = await queryRunner.query(
         `SELECT id FROM usermaster WHERE id = ? LIMIT 1`,
-        [userId]
+        [userId],
       );
       if (!userCheck || userCheck.length === 0) {
-        throw new BadRequestException(`Student with user ID ${userId} not found`);
+        throw new BadRequestException(
+          `Student with user ID ${userId} not found`,
+        );
       }
 
-      await queryRunner.query(
-        `UPDATE usermaster SET status = ? WHERE id = ?`,
-        [status, userId]
-      );
+      await queryRunner.query(`UPDATE usermaster SET status = ? WHERE id = ?`, [
+        status,
+        userId,
+      ]);
       await queryRunner.query(
         `UPDATE studentmaster SET status = ? WHERE userId = ?`,
-        [status, userId]
+        [status, userId],
       );
 
       await queryRunner.commitTransaction();
@@ -1404,7 +1616,8 @@ export class UsersService {
     'surroundings',
     'recycling',
     'waste',
-    'conservation'];
+    'conservation',
+  ];
   async fetchCompetencies(dto: {
     gradeId: number;
     subjectId: number;
@@ -1443,14 +1656,15 @@ export class UsersService {
     `;
 
       rows = await this.dataSource.query(query, [targetGradeId]);
-      console.log(rows)
+      console.log(rows);
       if (!Array.isArray(rows)) {
         rows = [];
       }
 
       rows = rows.filter((comp) => {
-        const textToSearch = `${comp.name || ''} ${comp.description || ''
-          }`.toLowerCase();
+        const textToSearch = `${comp.name || ''} ${
+          comp.description || ''
+        }`.toLowerCase();
 
         return this.evsKeywords.some((keyword) =>
           textToSearch.includes(keyword.toLowerCase()),
@@ -1477,10 +1691,7 @@ export class UsersService {
         AND sc.status = 1
     `;
 
-      rows = await this.dataSource.query(query, [
-        targetGradeId,
-        dto.subjectId,
-      ]);
+      rows = await this.dataSource.query(query, [targetGradeId, dto.subjectId]);
 
       if (!Array.isArray(rows) || rows.length === 0) {
         throw new NotFoundException(
@@ -1497,8 +1708,6 @@ export class UsersService {
       data: rows,
     };
   }
-
-
 
   // async processBatchGenerationB(dto: GenerateQuestionsDto) {
   //   // Step A: Fetch available competencies based on your grade, subject, and term rules
@@ -1639,7 +1848,6 @@ export class UsersService {
   //         console.log(cleanPrompt);
   //         const aiResponse = await model.generateContent(cleanPrompt);
 
-
   //         const textOutput = aiResponse.response.text();
   //         console.log(textOutput);
   //         // return
@@ -1703,7 +1911,6 @@ export class UsersService {
   //           }
   //         }
 
-
   //       } catch (error) {
   //         console.error(`Failed question sub-batch processing for Competency ID ${comp.id}:`, error.message);
   //         // If a sub-batch fails, break out or continue based on your error policy
@@ -1725,18 +1932,20 @@ export class UsersService {
     const competencyData = await this.fetchCompetencies({
       gradeId: dto.displayGradeId,
       subjectId: dto.subjectId,
-      term: dto.term
+      term: dto.term,
     });
     let targetCompetencies = [];
 
     if (!dto.competencyIds || dto.competencyIds.length === 0) {
       targetCompetencies = competencyData.data;
     } else {
-      targetCompetencies = competencyData.data.filter(c =>
-        dto.competencyIds.includes(Number(c.id))
+      targetCompetencies = competencyData.data.filter((c) =>
+        dto.competencyIds.includes(Number(c.id)),
       );
       if (targetCompetencies.length === 0) {
-        throw new BadRequestException(`None of the provided Competency IDs match this context.`);
+        throw new BadRequestException(
+          `None of the provided Competency IDs match this context.`,
+        );
       }
     }
 
@@ -1746,14 +1955,22 @@ export class UsersService {
       FROM grade_subject_question_mapping 
       WHERE grade_id = ? AND subject_id = ?;
     `;
-    const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
-    const dbCount = (configResult && configResult.length > 0) ? Number(configResult[0].count) : 1;
+    const configResult = await this.dataSource.query(configQuery, [
+      dto.displayGradeId,
+      dto.subjectId,
+    ]);
+    const dbCount =
+      configResult && configResult.length > 0
+        ? Number(configResult[0].count)
+        : 1;
 
     let targetedGenCount = dbCount;
 
     if (dto.count && dto.count > 0) {
       if (dto.count > dbCount) {
-        throw new BadRequestException(`Requested question count (${dto.count}) exceeds the database limit (${dbCount}).`);
+        throw new BadRequestException(
+          `Requested question count (${dto.count}) exceeds the database limit (${dbCount}).`,
+        );
       }
       targetedGenCount = dto.count;
     }
@@ -1777,16 +1994,19 @@ export class UsersService {
         10. Avoid memorization and direct textbook recall.
         11. Use <p> and <b> HTML tags for formatting instruction, stimulus, question_text, option text, and rationale.
         12. Exactly 4 options (A,B,C,D).
-        13. Exactly 1 correct answer. `
+        13. Exactly 1 correct answer. `,
     });
 
     const successfullyGeneratedQuestions = [];
-    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    const delay = (ms: number) =>
+      new Promise((resolve) => setTimeout(resolve, ms));
 
-    const competencyList = targetCompetencies.map(c => c.name).join(', ');
+    const competencyList = targetCompetencies.map((c) => c.name).join(', ');
     let remainingQuestionsToProcess = targetedGenCount;
 
-    console.log(`🚀 Starting Agent Loop: Generating ${targetedGenCount} questions.`);
+    console.log(
+      `🚀 Starting Agent Loop: Generating ${targetedGenCount} questions.`,
+    );
 
     // 🔄 Step D: Chunking logic loop (Limits requests to max 5 items per system prompt call)
     while (remainingQuestionsToProcess > 0) {
@@ -1805,8 +2025,7 @@ export class UsersService {
           - For rationales, use <p> tags and <b> tags to highlight key learning points.
           - Ensure all HTML tags are properly closed.
           `;
-        console.log(cleanPrompt)
-
+        console.log(cleanPrompt);
 
         // API Call with responseSchema (Structured Output)
         const aiResponse = await model.generateContent({
@@ -1817,17 +2036,41 @@ export class UsersService {
             responseMimeType: 'application/json',
             responseSchema: {
               type: 'ARRAY',
-              description: 'List of generated competency based questions matching strict validation rules.',
+              description:
+                'List of generated competency based questions matching strict validation rules.',
               items: {
                 type: 'OBJECT',
                 properties: {
-                  competency_name: { type: 'STRING', description: 'The exact name of the competency picked from the allowed list.' },
-                  instruction: { type: 'STRING', description: 'Clear and crisp instruction with HTML <p> and <b> tags. Example: <p>Read the following text carefully and answer the question.</p>' },
-                  stimulus: { type: 'STRING', description: 'Real-life context, scenario, or dataset with HTML <p> and <b> tags. Use <p> for paragraphs and <b> for emphasis on key data points.' },
-                  question_text: { type: 'STRING', description: 'The question stem with HTML <p> and <b> tags. Must be clear and grammatically correct.' },
+                  competency_name: {
+                    type: 'STRING',
+                    description:
+                      'The exact name of the competency picked from the allowed list.',
+                  },
+                  instruction: {
+                    type: 'STRING',
+                    description:
+                      'Clear and crisp instruction with HTML <p> and <b> tags. Example: <p>Read the following text carefully and answer the question.</p>',
+                  },
+                  stimulus: {
+                    type: 'STRING',
+                    description:
+                      'Real-life context, scenario, or dataset with HTML <p> and <b> tags. Use <p> for paragraphs and <b> for emphasis on key data points.',
+                  },
+                  question_text: {
+                    type: 'STRING',
+                    description:
+                      'The question stem with HTML <p> and <b> tags. Must be clear and grammatically correct.',
+                  },
                   requires_image: { type: 'BOOLEAN' },
-                  image_prompt: { type: 'STRING', description: 'Detailed visual blueprint if requires_image is true, else null.' },
-                  correct_option: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
+                  image_prompt: {
+                    type: 'STRING',
+                    description:
+                      'Detailed visual blueprint if requires_image is true, else null.',
+                  },
+                  correct_option: {
+                    type: 'STRING',
+                    enum: ['A', 'B', 'C', 'D'],
+                  },
                   options: {
                     type: 'ARRAY',
                     items: {
@@ -1836,28 +2079,45 @@ export class UsersService {
                         id: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
                         text: {
                           type: 'STRING',
-                          description: 'Plausible option text with HTML <p> and <b> tags. Use <b> for key terms within the option.'
+                          description:
+                            'Plausible option text with HTML <p> and <b> tags. Use <b> for key terms within the option.',
                         },
                         requires_image: { type: 'BOOLEAN' },
                         image_prompt: {
                           type: 'STRING',
-                          description: 'Visual prompt if option is an image, else null.'
+                          description:
+                            'Visual prompt if option is an image, else null.',
                         },
                         rationale: {
                           type: 'STRING',
-                          description: 'Actionable feedback with HTML <p> and <b> tags. Use <b> to highlight why the option is correct or what misconception it represents. Example: <p><b>Correct:</b> The formula for area is length × breadth.</p>'
-                        }
+                          description:
+                            'Actionable feedback with HTML <p> and <b> tags. Use <b> to highlight why the option is correct or what misconception it represents. Example: <p><b>Correct:</b> The formula for area is length × breadth.</p>',
+                        },
                       },
-                      required: ['id', 'text', 'requires_image', 'image_prompt', 'rationale']
-                    }
-                  }
+                      required: [
+                        'id',
+                        'text',
+                        'requires_image',
+                        'image_prompt',
+                        'rationale',
+                      ],
+                    },
+                  },
                 },
-                required: ['competency_name', 'instruction', 'stimulus', 'question_text', 'requires_image', 'image_prompt', 'correct_option', 'options']
-              }
-            }
-          } as any
+                required: [
+                  'competency_name',
+                  'instruction',
+                  'stimulus',
+                  'question_text',
+                  'requires_image',
+                  'image_prompt',
+                  'correct_option',
+                  'options',
+                ],
+              },
+            },
+          } as any,
         });
-
 
         const textOutput = aiResponse.response.text();
         if (!textOutput || textOutput.trim() === '') {
@@ -1865,7 +2125,7 @@ export class UsersService {
           continue;
         }
 
-        console.log(textOutput)
+        console.log(textOutput);
 
         const parsedQuestionsArray = JSON.parse(textOutput);
         // const parsedQuestionsArray = [{
@@ -1910,14 +2170,17 @@ export class UsersService {
 
         if (Array.isArray(parsedQuestionsArray)) {
           for (const singleQuestionData of parsedQuestionsArray) {
-
             // डेटाबेस में मौजूद सही कॉम्पिटेंसी ऑब्जेक्ट ढूंढें
             const competency = targetCompetencies.find(
-              c => c.name.trim().toLowerCase() === (singleQuestionData.competency_name || '').trim().toLowerCase()
+              (c) =>
+                c.name.trim().toLowerCase() ===
+                (singleQuestionData.competency_name || '').trim().toLowerCase(),
             );
 
             if (!competency) {
-              console.warn(`⚠️ Competency name alignment fallback: ${singleQuestionData.competency_name}`);
+              console.warn(
+                `⚠️ Competency name alignment fallback: ${singleQuestionData.competency_name}`,
+              );
               continue;
             }
 
@@ -1929,7 +2192,7 @@ export class UsersService {
               dto.subjectId,
               competency.id,
               singleQuestionData,
-              dto.term
+              dto.term,
             );
 
             successfullyGeneratedQuestions.push(savedRecord);
@@ -1938,9 +2201,11 @@ export class UsersService {
 
         remainingQuestionsToProcess -= currentBatchSize;
         await delay(4000); // API Rate-limits (RPM) से बचने के लिए
-
       } catch (error) {
-        console.error(`❌ Failed question sub - batch processing: `, error.message);
+        console.error(
+          `❌ Failed question sub - batch processing: `,
+          error.message,
+        );
         remainingQuestionsToProcess -= currentBatchSize; // इनफिनिट लूप गार्ड रेल
       }
     }
@@ -1950,10 +2215,9 @@ export class UsersService {
       totalCompetenciesProcessed: targetCompetencies.length,
       targetQuestionsPerCompetency: targetedGenCount,
       totalSuccessfullySaved: successfullyGeneratedQuestions.length,
-      questions: successfullyGeneratedQuestions
+      questions: successfullyGeneratedQuestions,
     };
   }
-
 
   private async saveQuestionToDatabase(
     displayGradeId: number,
@@ -1961,7 +2225,7 @@ export class UsersService {
     subjectId: number,
     competencyId: number,
     aiData: any,
-    term: string
+    term: string,
   ) {
     const queryRunner = this.dataSource.createQueryRunner();
 
@@ -1991,23 +2255,21 @@ export class UsersService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?)
     `;
 
-      const questionInsertResult = await queryRunner.query(
-        insertQuestionSql,
-        [
-          displayGradeId,
-          syllabusGradeId,
-          subjectId,
-          competencyId,
-          aiData.instruction,
-          aiData.stimulus,
-          aiData.question_text,
-          aiData.requires_image ? 1 : 0,
-          aiData.image_prompt == "null" ? null : aiData.image_prompt,
-          qImageStatus, aiData.correct_option,
-          2,
-          termId
-        ]
-      );
+      const questionInsertResult = await queryRunner.query(insertQuestionSql, [
+        displayGradeId,
+        syllabusGradeId,
+        subjectId,
+        competencyId,
+        aiData.instruction,
+        aiData.stimulus,
+        aiData.question_text,
+        aiData.requires_image ? 1 : 0,
+        aiData.image_prompt == 'null' ? null : aiData.image_prompt,
+        qImageStatus,
+        aiData.correct_option,
+        2,
+        termId,
+      ]);
 
       const questionId = questionInsertResult.insertId;
 
@@ -2046,8 +2308,8 @@ export class UsersService {
           isCorrect,
           opt.rationale,
           opt.requires_image ? 1 : 0,
-          opt.image_prompt,
-          optionImageStatus
+          opt.image_prompt == 'null' ? null : opt.image_prompt,
+          optionImageStatus,
         ]);
       }
 
@@ -2060,7 +2322,7 @@ export class UsersService {
       SET updatedAt = CURRENT_TIMESTAMP
       WHERE id = ?
       `,
-        [questionId]
+        [questionId],
       );
 
       await queryRunner.commitTransaction();
@@ -2087,8 +2349,8 @@ export class UsersService {
           isCorrect: o.id === aiData.correct_option,
           requires_image: o.requires_image,
           image_prompt: o.image_prompt,
-          image_status: o.requires_image ? 'pending' : 'none'
-        }))
+          image_status: o.requires_image ? 'pending' : 'none',
+        })),
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -2101,24 +2363,23 @@ export class UsersService {
   async checkExamStatus(dto: CheckExamDto) {
     const term = await this.dataSource.query(
       `SELECT id, CURDATE() BETWEEN examStartDate AND examEndDate as isActive FROM termmaster WHERE id = ? LIMIT 1`,
-      [dto.termId]
+      [dto.termId],
     );
 
     if (!term || term.length === 0) {
-      return { status: "NOT_SCHEDULED" }
+      return { status: 'NOT_SCHEDULED' };
     }
-
 
     const existing = await this.dataSource.query(
       `SELECT status FROM student_exam WHERE studentId = ? AND termId = ? LIMIT 1`,
-      [dto.studentId, dto.termId]
+      [dto.studentId, dto.termId],
     );
 
     if (existing && existing.length > 0) {
       if (existing[0].status === 'COMPLETED') {
-        return { status: "COMPLETED" }
+        return { status: 'COMPLETED' };
       }
-      return { status: "IN_PROGRESS" }
+      return { status: 'IN_PROGRESS' };
     }
 
     return { status: 'NOT_STARTED' };
@@ -2129,10 +2390,13 @@ export class UsersService {
 
     const result = await this.dataSource.query(
       `INSERT INTO student_exam (studentId, termId, status, startedAt) VALUES (?, ?, 'STARTED', NOW())`,
-      [dto.studentId, dto.termId]
+      [dto.studentId, dto.termId],
     );
 
-    return { message: 'Exam started successfully', studentExamId: result.insertId };
+    return {
+      message: 'Exam started successfully',
+      studentExamId: result.insertId,
+    };
   }
 
   async submitExam(dto: SubmitExamDto) {
@@ -2143,7 +2407,7 @@ export class UsersService {
     try {
       const examCheck = await queryRunner.query(
         `SELECT id, status FROM student_exam WHERE id = ? `,
-        [dto.studentExamId]
+        [dto.studentExamId],
       );
 
       if (!examCheck || examCheck.length === 0) {
@@ -2160,20 +2424,24 @@ export class UsersService {
       `;
 
       for (const answer of dto.answers) {
-        const qRes = await queryRunner.query(`SELECT isCorrect FROM question_options WHERE id = ?`, [answer.optionId]);
-        const isCorrect = qRes && qRes.length > 0 && qRes[0].isCorrect === 1 ? 1 : 0;
+        const qRes = await queryRunner.query(
+          `SELECT isCorrect FROM question_options WHERE id = ?`,
+          [answer.optionId],
+        );
+        const isCorrect =
+          qRes && qRes.length > 0 && qRes[0].isCorrect === 1 ? 1 : 0;
 
         await queryRunner.query(insertAnswerSql, [
           dto.studentExamId,
           answer.questionId,
           answer.optionId,
-          isCorrect
+          isCorrect,
         ]);
       }
 
       await queryRunner.query(
         `UPDATE student_exam SET status = 'COMPLETED', completedAt = NOW() WHERE id = ?`,
-        [dto.studentExamId]
+        [dto.studentExamId],
       );
 
       await queryRunner.commitTransaction();
@@ -2190,7 +2458,9 @@ export class UsersService {
   async getExamQuestions(dto: GetExamQuestionsDto) {
     const statusResult = await this.checkExamStatus(dto);
     if (statusResult.status === 'NOT_SCHEDULED') {
-      throw new BadRequestException('Exam is not currently active for this term');
+      throw new BadRequestException(
+        'Exam is not currently active for this term',
+      );
     }
     if (statusResult.status === 'COMPLETED') {
       throw new BadRequestException('Exam already submitted');
@@ -2198,7 +2468,7 @@ export class UsersService {
 
     const studentCheck = await this.dataSource.query(
       `SELECT gradeId FROM studentmaster WHERE userId = ? LIMIT 1`,
-      [dto.studentId]
+      [dto.studentId],
     );
 
     if (!studentCheck || studentCheck.length === 0) {
@@ -2211,13 +2481,13 @@ export class UsersService {
       `SELECT subject_Id, mandatory_question_count 
        FROM grade_subject_question_mapping 
        WHERE grade_Id = ? AND status = 1`,
-      [gradeId]
+      [gradeId],
     );
 
     if (!mappings || mappings.length === 0) {
       return [];
     }
-    console.log(mappings)
+    console.log(mappings);
     let allQuestions = [];
 
     for (const map of mappings) {
@@ -2228,7 +2498,7 @@ export class UsersService {
            FROM questions q
            WHERE q.display_grade = ? AND q.subject_id = ? AND q.status = 1
            ORDER BY RAND() LIMIT ?`,
-          [gradeId, subject_Id, mandatory_question_count]
+          [gradeId, subject_Id, mandatory_question_count],
         );
         if (subjectQuestions && subjectQuestions.length > 0) {
           allQuestions = allQuestions.concat(subjectQuestions);
@@ -2252,7 +2522,7 @@ export class UsersService {
       `SELECT id, question_id, option_letter, option_text, requires_image, image_prompt ,image_url
        FROM question_options 
        WHERE question_id IN (?)`,
-      [questionIds]
+      [questionIds],
     );
 
     return allQuestions.map((q: any) => {
@@ -2275,12 +2545,10 @@ export class UsersService {
 
       return {
         ...q,
-        options: qOptions
+        options: qOptions,
       };
     });
   }
-
-
 
   async generateAndSaveImage(
     questionId: number,
@@ -2402,13 +2670,15 @@ export class UsersService {
         );
 
         // Cascade generation for options having prompt and no image URL
-        console.log('Main question image successfully generated. Checking options for cascade generation...');
+        console.log(
+          'Main question image successfully generated. Checking options for cascade generation...',
+        );
         try {
           const options = await this.dataSource.query(
             `SELECT id, option_letter, image_prompt, image_url 
              FROM question_options 
              WHERE question_id = ?`,
-            [questionId]
+            [questionId],
           );
 
           for (const opt of options) {
@@ -2417,9 +2687,15 @@ export class UsersService {
             const optLetter = opt.option_letter;
 
             if (optPrompt && (!optUrl || optUrl.trim() === '')) {
-              console.log(`Auto-generating image for option ${optLetter} with prompt: "${optPrompt}"`);
+              console.log(
+                `Auto-generating image for option ${optLetter} with prompt: "${optPrompt}"`,
+              );
 
-              const optUploadDir = path.join(process.cwd(), 'uploads', 'option');
+              const optUploadDir = path.join(
+                process.cwd(),
+                'uploads',
+                'option',
+              );
               if (!fs.existsSync(optUploadDir)) {
                 fs.mkdirSync(optUploadDir, { recursive: true });
               }
@@ -2435,9 +2711,12 @@ export class UsersService {
 
                 const optResponse = await fetch(optImageUrl);
                 if (optResponse.ok) {
-                  const optContentType = optResponse.headers.get('content-type');
+                  const optContentType =
+                    optResponse.headers.get('content-type');
                   if (optContentType?.startsWith('image/')) {
-                    const optBuffer = Buffer.from(await optResponse.arrayBuffer());
+                    const optBuffer = Buffer.from(
+                      await optResponse.arrayBuffer(),
+                    );
                     if (optBuffer.length > 0) {
                       await fs.promises.writeFile(optFilePath, optBuffer);
                       optSuccess = true;
@@ -2445,7 +2724,10 @@ export class UsersService {
                   }
                 }
               } catch (optErr: any) {
-                console.error(`Error auto-generating image for option ${optLetter}:`, optErr.message);
+                console.error(
+                  `Error auto-generating image for option ${optLetter}:`,
+                  optErr.message,
+                );
               }
 
               if (optSuccess) {
@@ -2456,22 +2738,27 @@ export class UsersService {
                   `UPDATE question_options
                    SET image_url = ?, requires_image = 1, image_status = 'completed'
                    WHERE question_id = ? AND option_letter = ?`,
-                  [optFullUrl, questionId, optLetter]
+                  [optFullUrl, questionId, optLetter],
                 );
-                console.log(`Option ${optLetter} image saved and database updated successfully.`);
+                console.log(
+                  `Option ${optLetter} image saved and database updated successfully.`,
+                );
               } else {
                 await this.dataSource.query(
                   `UPDATE question_options
                    SET image_status = 'failed'
                    WHERE question_id = ? AND option_letter = ?`,
-                  [questionId, optLetter]
+                  [questionId, optLetter],
                 );
                 console.error(`Option ${optLetter} image generation failed.`);
               }
             }
           }
         } catch (optCascadeErr: any) {
-          console.error('Error in options cascade generation:', optCascadeErr.message);
+          console.error(
+            'Error in options cascade generation:',
+            optCascadeErr.message,
+          );
         }
       }
 

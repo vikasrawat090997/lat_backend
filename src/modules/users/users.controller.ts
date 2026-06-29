@@ -1,4 +1,20 @@
-import { Controller, Post, Body, HttpCode, Patch, Get, Param, UseGuards, Query, UseInterceptors, UploadedFile, BadRequestException, Req, ValidationPipe, UsePipes } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  Patch,
+  Get,
+  Param,
+  UseGuards,
+  Query,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+  Req,
+  ValidationPipe,
+  UsePipes,
+} from '@nestjs/common';
 import { ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
@@ -10,11 +26,16 @@ import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../auth/access-control/jwt-auth.guard';
 import { GetCompetenciesDto } from './dto/get-competencies.dto';
 import { GenerateQuestionsDto } from './dto/generate-questions.dto';
-import { CheckExamDto, StartExamDto, SubmitExamDto, GetExamQuestionsDto } from './dto/exam.dto';
+import {
+  CheckExamDto,
+  StartExamDto,
+  SubmitExamDto,
+  GetExamQuestionsDto,
+} from './dto/exam.dto';
 
 @Controller('')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) { }
+  constructor(private readonly usersService: UsersService) {}
 
   @Post('login')
   async login(@Body() dto: LoginDto) {
@@ -28,21 +49,14 @@ export class UsersController {
   }
 
   @Get('grades')
-  async getGradesByGradeGroup(
-  ) {
-    return this.usersService.getGradesByGradeGroup(
-
-    );
+  async getGradesByGradeGroup() {
+    return this.usersService.getGradesByGradeGroup();
   }
 
   // @UseGuards(JwtAuthGuard)
   @Get('grades/grade-group/:id')
-  async getGradesGradeGroup(
-    @Param('id') id: number,
-  ) {
-    return this.usersService.getGradesGradeGroup(
-      id
-    );
+  async getGradesGradeGroup(@Param('id') id: number) {
+    return this.usersService.getGradesGradeGroup(id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -51,10 +65,8 @@ export class UsersController {
     return this.usersService.getSubjectList();
   }
 
-  @Get('subjects/grade-group/:id')
-  async getSubjectsByGradeGroup(
-    @Param('id') id: number,
-  ) {
+  @Get('subjects/grade/:id')
+  async getSubjectsByGradeGroup(@Param('id') id: number) {
     return this.usersService.getSubjectsByGradeGroup(id);
   }
 
@@ -101,7 +113,13 @@ export class UsersController {
     @Query('regionId') regionId?: string,
     @Query('schoolId') schoolId?: string,
   ) {
-    return this.usersService.getTeacherList(Number(page), Number(limit), search, regionId, schoolId);
+    return this.usersService.getTeacherList(
+      Number(page),
+      Number(limit),
+      search,
+      regionId,
+      schoolId,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
@@ -143,7 +161,12 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Patch('teachers/:userId/status')
-  @ApiBody({ schema: { type: 'object', properties: { status: { type: 'number', example: 1 } } } })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { status: { type: 'number', example: 1 } },
+    },
+  })
   async toggleTeacherStatus(
     @Param('userId') userId: number,
     @Body('status') status: number,
@@ -164,7 +187,14 @@ export class UsersController {
     @Query('section') section?: string,
     @Query('status') status?: string,
   ) {
-    return this.usersService.getStudentList(Number(page), Number(limit), search, gradeId, section, status);
+    return this.usersService.getStudentList(
+      Number(page),
+      Number(limit),
+      search,
+      gradeId,
+      section,
+      status,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
@@ -189,7 +219,10 @@ export class UsersController {
       },
     },
   })
-  async bulkUploadStudents(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
+  async bulkUploadStudents(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
@@ -208,12 +241,19 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Post('students/status')
-  @ApiBody({ schema: { type: 'object', properties: { status: { type: 'number', example: 1 }, studentId: { type: 'number', example: 1 } } } })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'number', example: 1 },
+        studentId: { type: 'number', example: 1 },
+      },
+    },
+  })
   async toggleStudentStatus(
     @Body('status') status: number,
     @Body('studentId') studentId: number,
   ) {
-
     return this.usersService.toggleStudentStatus(studentId, status);
   }
 
@@ -242,7 +282,6 @@ export class UsersController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-
     return this.usersService.getQuestionList({
       search,
       grade,
@@ -262,10 +301,7 @@ export class UsersController {
   }
 
   @Post('questions/generate-image')
-  async generateQuestionImage(
-    @Req() req: any,
-    @Body() body: any
-  ) {
+  async generateQuestionImage(@Req() req: any, @Body() body: any) {
     const data = body || req.body || {};
     const questionId = Number(data.questionId);
     const prompt = data.prompt;
@@ -282,7 +318,7 @@ export class UsersController {
       questionId,
       prompt,
       baseUrl,
-      optionLetter
+      optionLetter,
     );
   }
 
@@ -308,7 +344,12 @@ export class UsersController {
     const host = req.headers.host || '192.168.0.233:3001';
     const protocol = req.secure ? 'https' : 'http';
     const baseUrl = `${protocol}://${host}`;
-    return this.usersService.uploadAndSaveImage(questionId, file, baseUrl, optionLetter);
+    return this.usersService.uploadAndSaveImage(
+      questionId,
+      file,
+      baseUrl,
+      optionLetter,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
@@ -335,4 +376,3 @@ export class UsersController {
     return this.usersService.submitExam(dto);
   }
 }
-

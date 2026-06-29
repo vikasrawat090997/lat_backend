@@ -12,7 +12,7 @@ export class GradeSubjectMapping {
     id: number;
 
     @Column()
-    gradeGroupId: number;
+    gradeId: number;
 
     @Column()
     subjectId: number;
