@@ -179,6 +179,9 @@ export class UsersController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'gradeId', required: false, type: String })
+  @ApiQuery({ name: 'section', required: false, type: String })
+  @ApiQuery({ name: 'status', required: false, type: String })
   async getStudentList(
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
@@ -374,5 +377,45 @@ export class UsersController {
   @Post('students/exam/submit')
   async submitExam(@Body() dto: SubmitExamDto) {
     return this.usersService.submitExam(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('reviewers')
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'search', required: false, type: String })
+  async getReviewerList(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Query('search') search?: string,
+  ) {
+    return this.usersService.getReviewerList(Number(page), Number(limit), search);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('reviewers')
+  async createReviewer(@Body() dto: any) {
+    return this.usersService.createReviewer(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('reviewers/:userId')
+  async updateReviewer(@Param('userId') userId: number, @Body() dto: any) {
+    return this.usersService.updateReviewer(userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('reviewers/:userId/status')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { status: { type: 'number', example: 1 } },
+    },
+  })
+  async toggleReviewerStatus(
+    @Param('userId') userId: number,
+    @Body('status') status: number,
+  ) {
+    return this.usersService.toggleReviewerStatus(userId, status);
   }
 }

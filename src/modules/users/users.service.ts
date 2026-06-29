@@ -1247,7 +1247,16 @@ export class UsersService {
         dob,
         address,
       } = dto;
-
+      let sections =
+        section?.toLowerCase() === 'a'
+          ? 'Section A'
+          : section?.toLowerCase() === 'b'
+            ? 'Section B'
+            : section?.toLowerCase() === 'c'
+              ? 'Section C'
+              : section?.toLowerCase() === 'd'
+                ? 'Section D'
+                : section;
       const first2 = (firstName || '').substring(0, 2).toUpperCase();
       const mother2 = (motherName || '').substring(0, 2).toUpperCase();
       const father2 = (fatherName || '').substring(0, 2).toUpperCase();
@@ -1292,7 +1301,7 @@ export class UsersService {
           userId,
           rollNo || null,
           gradeId,
-          section || null,
+          sections || null,
           udisecode,
           fatherName || null,
           motherName || null,
@@ -2792,6 +2801,116 @@ export class UsersService {
     }
 
     throw new BadRequestException('Failed to generate image using AI.');
+  }
+
+  async getReviewerList(page: number, limit: number, search?: string) {
+    const offset = (page - 1) * limit;
+    let query = `
+      SELECT
+        u.id as userId,
+        u.firstName,
+        u.lastName,
+        u.email,
+        u.mobileNo,
+        u.status
+      FROM usermaster u
+      WHERE u.roleId = 4
+    `;
+    const params: any[] = [];
+
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM usermaster u
+      WHERE u.roleId = 4
+    `;
+    const countParams: any[] = [];
+
+    if (search) {
+      query += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR u.email LIKE ? OR u.mobileNo LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+      countQuery += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR u.email LIKE ? OR u.mobileNo LIKE ?)`;
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    query += ` ORDER BY u.firstName ASC LIMIT ? OFFSET ?`;
+    params.push(Number(limit), Number(offset));
+
+    const result = await this.dataSource.query(query, params);
+    const countResult = await this.dataSource.query(countQuery, countParams);
+
+    return {
+      success: true,
+      data: result,
+      total: Number(countResult[0].total),
+      page: Number(page),
+      limit: Number(limit),
+    };
+  }
+
+  async createReviewer(dto: any) {
+    const { firstName, lastName, email, mobileNo } = dto;
+
+    const username = `${firstName?.substring(0, 2)?.toUpperCase()}${mobileNo?.slice(-4)}`;
+    const rawPassword = `${firstName?.substring(0, 2)?.toUpperCase()}${mobileNo?.slice(-4)}@123`;
+    const password = await bcrypt.hash(rawPassword, 10);
+
+    await this.dataSource.query(
+      `INSERT INTO usermaster (roleId, username, firstName, lastName, email, mobileNo, password, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [4, username, firstName, lastName, email || null, mobileNo, password, 1],
+    );
+
+    return {
+      success: true,
+      message: 'Reviewer created successfully',
+    };
+  }
+
+  async updateReviewer(userId: number, dto: any) {
+    const { firstName, lastName, email, mobileNo } = dto;
+
+    const userCheck = await this.dataSource.query(
+      `SELECT id FROM usermaster WHERE id = ? AND roleId = 4 LIMIT 1`,
+      [userId],
+    );
+    if (!userCheck || userCheck.length === 0) {
+      throw new BadRequestException(`Reviewer with user ID ${userId} not found`);
+    }
+
+    let updateQuery = `UPDATE usermaster SET `;
+    const params: any[] = [];
+    if (firstName !== undefined) { updateQuery += `firstName = ?, `; params.push(firstName); }
+    if (lastName !== undefined) { updateQuery += `lastName = ?, `; params.push(lastName); }
+    if (email !== undefined) { updateQuery += `email = ?, `; params.push(email); }
+    if (mobileNo !== undefined) { updateQuery += `mobileNo = ?, `; params.push(mobileNo); }
+    updateQuery = updateQuery.slice(0, -2) + ` WHERE id = ?`;
+    params.push(userId);
+    await this.dataSource.query(updateQuery, params);
+
+    return {
+      success: true,
+      message: 'Reviewer updated successfully',
+    };
+  }
+
+  async toggleReviewerStatus(userId: number, status: number) {
+    const userCheck = await this.dataSource.query(
+      `SELECT id FROM usermaster WHERE id = ? AND roleId = 4 LIMIT 1`,
+      [userId],
+    );
+    if (!userCheck || userCheck.length === 0) {
+      throw new BadRequestException(`Reviewer with user ID ${userId} not found`);
+    }
+
+    await this.dataSource.query(`UPDATE usermaster SET status = ? WHERE id = ?`, [
+      status,
+      userId,
+    ]);
+
+    return {
+      success: true,
+      message: `Reviewer status updated successfully`,
+    };
   }
 
   async uploadAndSaveImage(
