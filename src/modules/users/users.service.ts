@@ -1153,7 +1153,7 @@ export class UsersService {
         u.email,
         u.mobileNo as parentMobile,
         sm.rollNo,
-        sm.gradeId,
+        gm.name as gradeId,
         sm.section,
         sm.udiseCode,
         sm.fatherName,
@@ -1163,6 +1163,7 @@ export class UsersService {
         sm.address, u.status
       FROM studentmaster sm
       INNER JOIN usermaster u ON u.id = sm.userId
+      inner join grademaster gm on gm.id = sm.gradeId
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -2829,7 +2830,12 @@ export class UsersService {
       query += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR u.email LIKE ? OR u.mobileNo LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
       countQuery += ` AND (u.firstName LIKE ? OR u.lastName LIKE ? OR u.email LIKE ? OR u.mobileNo LIKE ?)`;
-      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+      countParams.push(
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+      );
     }
 
     query += ` ORDER BY u.firstName ASC LIMIT ? OFFSET ?`;
@@ -2874,15 +2880,29 @@ export class UsersService {
       [userId],
     );
     if (!userCheck || userCheck.length === 0) {
-      throw new BadRequestException(`Reviewer with user ID ${userId} not found`);
+      throw new BadRequestException(
+        `Reviewer with user ID ${userId} not found`,
+      );
     }
 
     let updateQuery = `UPDATE usermaster SET `;
     const params: any[] = [];
-    if (firstName !== undefined) { updateQuery += `firstName = ?, `; params.push(firstName); }
-    if (lastName !== undefined) { updateQuery += `lastName = ?, `; params.push(lastName); }
-    if (email !== undefined) { updateQuery += `email = ?, `; params.push(email); }
-    if (mobileNo !== undefined) { updateQuery += `mobileNo = ?, `; params.push(mobileNo); }
+    if (firstName !== undefined) {
+      updateQuery += `firstName = ?, `;
+      params.push(firstName);
+    }
+    if (lastName !== undefined) {
+      updateQuery += `lastName = ?, `;
+      params.push(lastName);
+    }
+    if (email !== undefined) {
+      updateQuery += `email = ?, `;
+      params.push(email);
+    }
+    if (mobileNo !== undefined) {
+      updateQuery += `mobileNo = ?, `;
+      params.push(mobileNo);
+    }
     updateQuery = updateQuery.slice(0, -2) + ` WHERE id = ?`;
     params.push(userId);
     await this.dataSource.query(updateQuery, params);
@@ -2899,13 +2919,15 @@ export class UsersService {
       [userId],
     );
     if (!userCheck || userCheck.length === 0) {
-      throw new BadRequestException(`Reviewer with user ID ${userId} not found`);
+      throw new BadRequestException(
+        `Reviewer with user ID ${userId} not found`,
+      );
     }
 
-    await this.dataSource.query(`UPDATE usermaster SET status = ? WHERE id = ?`, [
-      status,
-      userId,
-    ]);
+    await this.dataSource.query(
+      `UPDATE usermaster SET status = ? WHERE id = ?`,
+      [status, userId],
+    );
 
     return {
       success: true,
