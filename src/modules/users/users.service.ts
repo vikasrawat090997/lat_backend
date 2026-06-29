@@ -249,7 +249,7 @@ export class UsersService {
     };
   }
 
-  async getQuestionList(filters: {
+  async getQuestionListC(filters: {
     search?: string;
     grade?: string;
     subject?: string;
@@ -390,6 +390,205 @@ export class UsersService {
     return {
       success: true,
       questions: Array.from(questionMap.values()),
+      total,
+      page: Number(page),
+      limit: Number(limit),
+    };
+  }
+  async getQuestionList(filters: {
+    search?: string;
+    grade?: string;
+    subject?: string;
+    competency?: string;
+    status?: string;
+    termId?: string;
+    page: number;
+    limit: number;
+  }) {
+    const { search, grade, subject, competency, status, termId, page, limit } = filters;
+
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (search) {
+      conditions.push(`(q.question_Text LIKE ? OR CAST(q.id AS CHAR) LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    if (grade) {
+      conditions.push(`q.display_Grade = ?`);
+      params.push(Number(grade));
+    }
+
+    if (subject) {
+      conditions.push(`q.subject_Id = ?`);
+      params.push(Number(subject));
+    }
+
+    if (status !== undefined && status !== '') {
+      conditions.push(`q.status = ?`);
+      params.push(Number(status));
+    }
+
+    if (competency) {
+      conditions.push(`q.competency_Targeted_Id = ?`);
+      params.push(Number(competency));
+    }
+
+    if (termId !== undefined && termId !== '') {
+      conditions.push(`q.termId = ?`);
+      params.push(Number(termId));
+    }
+
+    const where = conditions.length
+      ? `WHERE ${conditions.join(' AND ')}`
+      : '';
+
+    /**
+     * Total Count
+     */
+    const countQuery = `
+    SELECT COUNT(*) AS total
+    FROM questions q
+    ${where}
+  `;
+
+    /**
+     * Step 1
+     * Fetch only Question IDs (Pagination)
+     */
+    const questionIdQuery = `
+    SELECT q.id
+    FROM questions q
+    ${where}
+    ORDER BY q.id DESC
+    LIMIT ? OFFSET ?
+  `;
+
+    const [countResult, idRows] = await Promise.all([
+      this.dataSource.query(countQuery, params),
+      this.dataSource.query(questionIdQuery, [...params, limit, offset]),
+    ]);
+    const total = Number(countResult[0]?.total ?? 0);
+
+    if (!idRows.length) {
+      return {
+        success: true,
+        questions: [],
+        total,
+        page: Number(page),
+        limit: Number(limit),
+      };
+    }
+
+    /**
+     * Step 2
+     * Fetch Questions + Options
+     */
+    const questionIds = idRows.map((item: any) => item.id);
+
+    const placeholders = questionIds.map(() => '?').join(',');
+
+    const dataQuery = `
+      SELECT
+          q.id,
+          q.question_Text,
+          q.instruction,
+          q.stimulus,
+          q.image_Url,
+          q.status,
+          q.createdAt,
+          q.updatedAt,
+
+          CAST(q.id AS CHAR) AS questionId,
+
+          gm.name AS grade,
+          sm.name AS subject,
+          cm.name AS competency,
+
+          qo.id AS optionId,
+          qo.option_letter,
+          qo.option_text,
+          qo.isCorrect,
+          qo.image_url AS optionImageUrl,
+          qo.rationale
+
+      FROM questions q
+
+      LEFT JOIN grademaster gm
+          ON gm.id = q.display_Grade
+
+      LEFT JOIN subjectmaster sm
+          ON sm.id = q.subject_Id
+
+      LEFT JOIN competencymaster cm
+          ON cm.id = q.competency_Targeted_Id
+
+      LEFT JOIN question_options qo
+          ON qo.question_id = q.id
+
+      WHERE q.id IN (${placeholders})
+
+      ORDER BY q.id DESC, qo.option_letter ASC
+  `;
+
+    const rows = await this.dataSource.query(dataQuery, questionIds);
+
+    /**
+     * Step 3
+     * Group Options under each Question
+     */
+    const questionMap = new Map<number, any>();
+
+    for (const row of rows) {
+      if (!questionMap.has(row.id)) {
+        questionMap.set(row.id, {
+          id: Number(row.id),
+          questionId: String(row.questionId),
+          grade: row.grade ?? '',
+          subject: row.subject ?? '',
+          competency: row.competency ?? '',
+          instruction: row.instruction ?? '',
+          stimulus: row.stimulus ?? '',
+          questionText: row.question_Text ?? '',
+          status:
+            row.status === 1
+              ? 'Active'
+              : row.status === 2
+                ? 'Draft'
+                : 'Inactive',
+          imageUrl: row.image_Url ?? null,
+          answerExplanation: '',
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          options: [],
+        });
+      }
+
+      if (row.optionId) {
+        questionMap.get(row.id).options.push({
+          id: row.option_letter,
+          optionId: Number(row.optionId),
+          text: row.option_text,
+          isCorrect: row.isCorrect === 1,
+          imageUrl: row.optionImageUrl ?? null,
+          rationale: row.rationale ?? '',
+        });
+      }
+    }
+
+    /**
+     * Preserve Pagination Order
+     */
+    const questions = questionIds
+      .map((id: number) => questionMap.get(id))
+      .filter(Boolean);
+
+    return {
+      success: true,
+      questions,
       total,
       page: Number(page),
       limit: Number(limit),
@@ -1294,225 +1493,225 @@ export class UsersService {
 
 
 
-  async processBatchGenerationB(dto: GenerateQuestionsDto) {
-    // Step A: Fetch available competencies based on your grade, subject, and term rules
-    const competencyData = await this.fetchCompetencies({
-      gradeId: dto.displayGradeId,
-      subjectId: dto.subjectId,
-      term: dto.term
-    });
+  // async processBatchGenerationB(dto: GenerateQuestionsDto) {
+  //   // Step A: Fetch available competencies based on your grade, subject, and term rules
+  //   const competencyData = await this.fetchCompetencies({
+  //     gradeId: dto.displayGradeId,
+  //     subjectId: dto.subjectId,
+  //     term: dto.term
+  //   });
 
-    let targetCompetencies = [];
+  //   let targetCompetencies = [];
 
-    if (!dto.competencyIds || dto.competencyIds.length === 0) {
-      targetCompetencies = competencyData.data;
-    } else {
-      targetCompetencies = competencyData.data.filter(c =>
-        dto.competencyIds.includes(Number(c.id))
-      );
-      if (targetCompetencies.length === 0) {
-        throw new BadRequestException(`None of the provided Competency IDs match this context.`);
-      }
-    }
+  //   if (!dto.competencyIds || dto.competencyIds.length === 0) {
+  //     targetCompetencies = competencyData.data;
+  //   } else {
+  //     targetCompetencies = competencyData.data.filter(c =>
+  //       dto.competencyIds.includes(Number(c.id))
+  //     );
+  //     if (targetCompetencies.length === 0) {
+  //       throw new BadRequestException(`None of the provided Competency IDs match this context.`);
+  //     }
+  //   }
 
-    // 🎯 Step B: Look up targeted question generation counts from configuration database mapping table
-    const configQuery = `
-      SELECT mandatory_question_count as count FROM grade_subject_question_mapping where grade_id = ? and subject_id = ?;
-    `;
-    const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
-    const dbCount = (configResult && configResult.length > 0) ? Number(configResult[0].count) : 1;
+  //   // 🎯 Step B: Look up targeted question generation counts from configuration database mapping table
+  //   const configQuery = `
+  //     SELECT mandatory_question_count as count FROM grade_subject_question_mapping where grade_id = ? and subject_id = ?;
+  //   `;
+  //   const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
+  //   const dbCount = (configResult && configResult.length > 0) ? Number(configResult[0].count) : 1;
 
-    let targetedGenCount = dbCount;
+  //   let targetedGenCount = dbCount;
 
-    if (dto.count && dto.count > 0) {
-      if (dto.count > dbCount) {
-        throw new BadRequestException(`Requested question count (${dto.count}) exceeds the database limit (${dbCount}).`);
-      }
-      targetedGenCount = dto.count;
-    }
+  //   if (dto.count && dto.count > 0) {
+  //     if (dto.count > dbCount) {
+  //       throw new BadRequestException(`Requested question count (${dto.count}) exceeds the database limit (${dbCount}).`);
+  //     }
+  //     targetedGenCount = dto.count;
+  //   }
 
-    const model = this.aiClient.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-    });
-    const successfullyGeneratedQuestions = [];
-    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    // Step C: Loop over evaluated targeting competencies
-    for (const comp of targetCompetencies) {
-      let remainingQuestionsToProcess = targetedGenCount;
+  //   const model = this.aiClient.getGenerativeModel({
+  //     model: 'gemini-2.5-flash',
+  //   });
+  //   const successfullyGeneratedQuestions = [];
+  //   const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  //   // Step C: Loop over evaluated targeting competencies
+  //   for (const comp of targetCompetencies) {
+  //     let remainingQuestionsToProcess = targetedGenCount;
 
-      // 🔄 Step D: Chunking logic loop (Limits requests to max 5 items per system prompt call)
-      while (remainingQuestionsToProcess > 0) {
-        const currentBatchSize = Math.min(remainingQuestionsToProcess, 5);
-        remainingQuestionsToProcess -= currentBatchSize;
+  //     // 🔄 Step D: Chunking logic loop (Limits requests to max 5 items per system prompt call)
+  //     while (remainingQuestionsToProcess > 0) {
+  //       const currentBatchSize = Math.min(remainingQuestionsToProcess, 5);
+  //       remainingQuestionsToProcess -= currentBatchSize;
 
-        try {
+  //       try {
 
-          const cleanPrompt = `
-  Generate ${currentBatchSize} competency-based MCQs.
+  //         const cleanPrompt = `
+  // Generate ${currentBatchSize} competency-based MCQs.
 
-  Grade: ${dto.displayGradeId}
-  Skill Level: ${competencyData.logicalSyllabusGradeId}
-  Competency: ${comp.name}
+  // Grade: ${dto.displayGradeId}
+  // Skill Level: ${competencyData.logicalSyllabusGradeId}
+  // Competency: ${comp.name}
 
-  Rules:
-  - Real-life application questions only.
-  - Avoid memorization and direct textbook recall.
-  - Use <p> and <b> HTML tags.
-  - Exactly 4 options (A,B,C,D).
-  - Exactly 1 correct answer.
+  // Rules:
+  // - Real-life application questions only.
+  // - Avoid memorization and direct textbook recall.
+  // - Use <p> and <b> HTML tags.
+  // - Exactly 4 options (A,B,C,D).
+  // - Exactly 1 correct answer.
 
-  IMAGE RULES:
-  - Decide independently whether the QUESTION requires an image.
-  - Decide independently whether any OPTION requires an image.
-  - Images should be used when they improve assessment quality.
-  - Use images for:
-    plants, animals, objects, shapes, maps, patterns,
-    measurements, comparisons, observations,
-    surroundings, activities, community places,
-    weather, transport and real-life situations.
+  // IMAGE RULES:
+  // - Decide independently whether the QUESTION requires an image.
+  // - Decide independently whether any OPTION requires an image.
+  // - Images should be used when they improve assessment quality.
+  // - Use images for:
+  //   plants, animals, objects, shapes, maps, patterns,
+  //   measurements, comparisons, observations,
+  //   surroundings, activities, community places,
+  //   weather, transport and real-life situations.
 
-  QUESTION IMAGE:
-  - If question requires image:
-    "requires_image": true
-    and generate detailed "image_prompt".
-  - Otherwise:
-    "requires_image": false
-    and "image_prompt": null.
+  // QUESTION IMAGE:
+  // - If question requires image:
+  //   "requires_image": true
+  //   and generate detailed "image_prompt".
+  // - Otherwise:
+  //   "requires_image": false
+  //   and "image_prompt": null.
 
-  OPTION IMAGE:
-  - Each option may also require an image.
-  - If option requires image:
-    "requires_image": true
-    and generate detailed "image_prompt".
-  - Otherwise:
-    "requires_image": false
-    and "image_prompt": null.
+  // OPTION IMAGE:
+  // - Each option may also require an image.
+  // - If option requires image:
+  //   "requires_image": true
+  //   and generate detailed "image_prompt".
+  // - Otherwise:
+  //   "requires_image": false
+  //   and "image_prompt": null.
 
-  Return JSON only.
-  No markdown.
-  No explanation.
+  // Return JSON only.
+  // No markdown.
+  // No explanation.
 
-  Format:
-  [
-    {
-      "question_text":"",
-      "requires_image":true,
-      "image_prompt":"",
+  // Format:
+  // [
+  //   {
+  //     "question_text":"",
+  //     "requires_image":true,
+  //     "image_prompt":"",
 
-      "correct_option":"A",
+  //     "correct_option":"A",
 
-      "options":[
-        {
-          "id":"A",
-          "text":"",
-          "requires_image":true,
-          "image_prompt":""
-        },
-        {
-          "id":"B",
-          "text":"",
-          "requires_image":false,
-          "image_prompt":null
-        },
-        {
-          "id":"C",
-          "text":"",
-          "requires_image":false,
-          "image_prompt":null
-        },
-        {
-          "id":"D",
-          "text":"",
-          "requires_image":false,
-          "image_prompt":null
-        }
-      ]
-    }
-  ]
-  `;
-          console.log(cleanPrompt);
-          const aiResponse = await model.generateContent(cleanPrompt);
-
-
-          const textOutput = aiResponse.response.text();
-          console.log(textOutput);
-          // return
-          if (!textOutput) continue;
-
-          const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
-          const parsedQuestionsArray = JSON.parse(cleanedJsonString);
-
-          // Iterate and save every generated item returned in the sub-batch array
-          if (Array.isArray(parsedQuestionsArray)) {
-            // for (const singleQuestionData of parsedQuestionsArray) {
-            //   const savedRecord = await this.saveQuestionToDatabase(
-            //     dto.displayGradeId,
-            //     competencyData.logicalSyllabusGradeId,
-            //     dto.subjectId,
-            //     comp.id,
-            //     singleQuestionData
-            //   );
-            //   successfullyGeneratedQuestions.push(savedRecord);
-            // }
-
-            for (const comp of targetCompetencies) {
-              try {
-
-                const aiResponse = await model.generateContent(cleanPrompt);
-
-                const textOutput = aiResponse.response.text();
-
-                let cleanedJsonString = textOutput
-                  .replace(/```json/g, '')
-                  .replace(/```/g, '')
-                  .trim();
-
-                const parsedData = JSON.parse(cleanedJsonString);
-
-                const questions = Array.isArray(parsedData)
-                  ? parsedData
-                  : [parsedData];
-
-                for (const question of questions) {
-                  const savedRecord =
-                    await this.saveQuestionToDatabase(
-                      dto.displayGradeId,
-                      competencyData.logicalSyllabusGradeId,
-                      dto.subjectId,
-                      comp.id,
-                      question,
-                    );
-
-                  successfullyGeneratedQuestions.push(savedRecord);
-                }
-
-                await delay(5000);
-
-              } catch (error) {
-                console.error(
-                  `Competency ${comp.id} failed`,
-                  error,
-                );
-              }
-            }
-          }
+  //     "options":[
+  //       {
+  //         "id":"A",
+  //         "text":"",
+  //         "requires_image":true,
+  //         "image_prompt":""
+  //       },
+  //       {
+  //         "id":"B",
+  //         "text":"",
+  //         "requires_image":false,
+  //         "image_prompt":null
+  //       },
+  //       {
+  //         "id":"C",
+  //         "text":"",
+  //         "requires_image":false,
+  //         "image_prompt":null
+  //       },
+  //       {
+  //         "id":"D",
+  //         "text":"",
+  //         "requires_image":false,
+  //         "image_prompt":null
+  //       }
+  //     ]
+  //   }
+  // ]
+  // `;
+  //         console.log(cleanPrompt);
+  //         const aiResponse = await model.generateContent(cleanPrompt);
 
 
-        } catch (error) {
-          console.error(`Failed question sub-batch processing for Competency ID ${comp.id}:`, error.message);
-          // If a sub-batch fails, break out or continue based on your error policy
-        }
-      }
-    }
+  //         const textOutput = aiResponse.response.text();
+  //         console.log(textOutput);
+  //         // return
+  //         if (!textOutput) continue;
 
-    return {
-      success: true,
-      totalCompetenciesProcessed: targetCompetencies.length,
-      targetQuestionsPerCompetency: targetedGenCount,
-      totalSuccessfullySaved: successfullyGeneratedQuestions.length,
-      questions: successfullyGeneratedQuestions
-    };
-  }
+  //         const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
+  //         const parsedQuestionsArray = JSON.parse(cleanedJsonString);
+
+  //         // Iterate and save every generated item returned in the sub-batch array
+  //         if (Array.isArray(parsedQuestionsArray)) {
+  //           // for (const singleQuestionData of parsedQuestionsArray) {
+  //           //   const savedRecord = await this.saveQuestionToDatabase(
+  //           //     dto.displayGradeId,
+  //           //     competencyData.logicalSyllabusGradeId,
+  //           //     dto.subjectId,
+  //           //     comp.id,
+  //           //     singleQuestionData
+  //           //   );
+  //           //   successfullyGeneratedQuestions.push(savedRecord);
+  //           // }
+
+  //           for (const comp of targetCompetencies) {
+  //             try {
+
+  //               const aiResponse = await model.generateContent(cleanPrompt);
+
+  //               const textOutput = aiResponse.response.text();
+
+  //               let cleanedJsonString = textOutput
+  //                 .replace(/```json/g, '')
+  //                 .replace(/```/g, '')
+  //                 .trim();
+
+  //               const parsedData = JSON.parse(cleanedJsonString);
+
+  //               const questions = Array.isArray(parsedData)
+  //                 ? parsedData
+  //                 : [parsedData];
+
+  //               for (const question of questions) {
+  //                 const savedRecord =
+  //                   await this.saveQuestionToDatabase(
+  //                     dto.displayGradeId,
+  //                     competencyData.logicalSyllabusGradeId,
+  //                     dto.subjectId,
+  //                     comp.id,
+  //                     question,
+  //                   );
+
+  //                 successfullyGeneratedQuestions.push(savedRecord);
+  //               }
+
+  //               await delay(5000);
+
+  //             } catch (error) {
+  //               console.error(
+  //                 `Competency ${comp.id} failed`,
+  //                 error,
+  //               );
+  //             }
+  //           }
+  //         }
+
+
+  //       } catch (error) {
+  //         console.error(`Failed question sub-batch processing for Competency ID ${comp.id}:`, error.message);
+  //         // If a sub-batch fails, break out or continue based on your error policy
+  //       }
+  //     }
+  //   }
+
+  //   return {
+  //     success: true,
+  //     totalCompetenciesProcessed: targetCompetencies.length,
+  //     targetQuestionsPerCompetency: targetedGenCount,
+  //     totalSuccessfullySaved: successfullyGeneratedQuestions.length,
+  //     questions: successfullyGeneratedQuestions
+  //   };
+  // }
 
   async processBatchGeneration(dto: GenerateQuestionsDto) {
     // Step A: Fetch available competencies based on your grade, subject, and term rules
@@ -1553,26 +1752,26 @@ export class UsersService {
     }
 
     // 🎯 SYSTEM INSTRUCTIONS: दस्तावेज़ के सभी नियमों को यहाँ समाहित किया गया है
-    // const model = this.aiClient.getGenerativeModel({
-    //   model: 'gemini-2.5-flash',
-    //   systemInstruction: `You are an elite academic assessment designer specializing in CBSE Competency-Based Education (CBE).
-    //     Your job is to generate unique, high-quality multiple-choice questions (MCQs) based ONLY on the inputs and guidelines provided.
+    const model = this.aiClient.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction: `You are an elite academic assessment designer specializing in CBSE Competency-Based Education (CBE).
+        Your job is to generate unique, high-quality multiple-choice questions (MCQs) based ONLY on the inputs and guidelines provided.
 
-    //     CRITICAL ASSESSMENT ARCHITECTURE RULES:
-    //     1. Every item must have an explicit "Instruction statement" (e.g., "Read the text and answer the question.").
-    //     2. Every item must have a "Stimulus": For non-language subjects, it must be a real-life context, scenario, table, or map. It must provide enough information for students to derive the answer, but the answer should NOT be directly stated.
-    //     3. The "Stem" (question statement) must be clear, complete, unambiguous, grammatically correct, and positively stated.
-    //     4. "Options" (Distractors & Key): Must have exactly 4 options. Distractors must be plausible, reflecting possible student misconceptions extracted or derived from the stimulus. Options must be consistent in length and structure, and must NOT overlap. Do NOT use extreme words like "always", "never", "all of these", "none of the above".
-    //     5. "Rationales": Provide brief, actionable feedback to the learner explaining why an option is correct or incorrect.
-    //     6. "Image/Graphic Evaluation": Decide independently if the question text or options require a visual asset (chart, diagram, setup) to improve assessment quality. If yes, set "requires_image": true and write a detailed "image_prompt".
-    //     7. Core Principles: Ensure Validity, Reliability, Discrimination (guesswork should not help), Authenticity, Worthwhileness (focus on central concepts, not trivial facts), and Fairness (free from regional/gender bias). Avoid Artificial Challenges (no unnecessary or confusing language).
-    //     8. Map the question to the exact competency name selected from the provided list.
-    //     9. Real-life application questions only.
-    //     10. Avoid memorization and direct textbook recall.
-    //     11. Use <p> and <b> HTML tags for formatting instruction, stimulus, question_text, option text, and rationale.
-    //     12. Exactly 4 options (A,B,C,D).
-    //     13. Exactly 1 correct answer. `
-    // });
+        CRITICAL ASSESSMENT ARCHITECTURE RULES:
+        1. Every item must have an explicit "Instruction statement" (e.g., "Read the text and answer the question.").
+        2. Every item must have a "Stimulus": For non-language subjects, it must be a real-life context, scenario, table, or map. It must provide enough information for students to derive the answer, but the answer should NOT be directly stated.
+        3. The "Stem" (question statement) must be clear, complete, unambiguous, grammatically correct, and positively stated.
+        4. "Options" (Distractors & Key): Must have exactly 4 options. Distractors must be plausible, reflecting possible student misconceptions extracted or derived from the stimulus. Options must be consistent in length and structure, and must NOT overlap. Do NOT use extreme words like "always", "never", "all of these", "none of the above".
+        5. "Rationales": Provide brief, actionable feedback to the learner explaining why an option is correct or incorrect.
+        6. "Image/Graphic Evaluation": Decide independently if the question text or options require a visual asset (chart, diagram, setup) to improve assessment quality. If yes, set "requires_image": true and write a detailed "image_prompt".
+        7. Core Principles: Ensure Validity, Reliability, Discrimination (guesswork should not help), Authenticity, Worthwhileness (focus on central concepts, not trivial facts), and Fairness (free from regional/gender bias). Avoid Artificial Challenges (no unnecessary or confusing language).
+        8. Map the question to the exact competency name selected from the provided list.
+        9. Real-life application questions only.
+        10. Avoid memorization and direct textbook recall.
+        11. Use <p> and <b> HTML tags for formatting instruction, stimulus, question_text, option text, and rationale.
+        12. Exactly 4 options (A,B,C,D).
+        13. Exactly 1 correct answer. `
+    });
 
     const successfullyGeneratedQuestions = [];
     const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -1603,104 +1802,104 @@ export class UsersService {
 
 
         // API Call with responseSchema (Structured Output)
-        // const aiResponse = await model.generateContent({
-        //   contents: [{ role: 'user', parts: [{ text: cleanPrompt }] }],
-        //   generationConfig: {
-        //     temperature: 0.45,
-        //     maxOutputTokens: 3000,
-        //     responseMimeType: 'application/json',
-        //     responseSchema: {
-        //       type: 'ARRAY',
-        //       description: 'List of generated competency based questions matching strict validation rules.',
-        //       items: {
-        //         type: 'OBJECT',
-        //         properties: {
-        //           competency_name: { type: 'STRING', description: 'The exact name of the competency picked from the allowed list.' },
-        //           instruction: { type: 'STRING', description: 'Clear and crisp instruction with HTML <p> and <b> tags. Example: <p>Read the following text carefully and answer the question.</p>' },
-        //           stimulus: { type: 'STRING', description: 'Real-life context, scenario, or dataset with HTML <p> and <b> tags. Use <p> for paragraphs and <b> for emphasis on key data points.' },
-        //           question_text: { type: 'STRING', description: 'The question stem with HTML <p> and <b> tags. Must be clear and grammatically correct.' },
-        //           requires_image: { type: 'BOOLEAN' },
-        //           image_prompt: { type: 'STRING', description: 'Detailed visual blueprint if requires_image is true, else null.' },
-        //           correct_option: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
-        //           options: {
-        //             type: 'ARRAY',
-        //             items: {
-        //               type: 'OBJECT',
-        //               properties: {
-        //                 id: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
-        //                 text: {
-        //                   type: 'STRING',
-        //                   description: 'Plausible option text with HTML <p> and <b> tags. Use <b> for key terms within the option.'
-        //                 },
-        //                 requires_image: { type: 'BOOLEAN' },
-        //                 image_prompt: {
-        //                   type: 'STRING',
-        //                   description: 'Visual prompt if option is an image, else null.'
-        //                 },
-        //                 rationale: {
-        //                   type: 'STRING',
-        //                   description: 'Actionable feedback with HTML <p> and <b> tags. Use <b> to highlight why the option is correct or what misconception it represents. Example: <p><b>Correct:</b> The formula for area is length × breadth.</p>'
-        //                 }
-        //               },
-        //               required: ['id', 'text', 'requires_image', 'image_prompt', 'rationale']
-        //             }
-        //           }
-        //         },
-        //         required: ['competency_name', 'instruction', 'stimulus', 'question_text', 'requires_image', 'image_prompt', 'correct_option', 'options']
-        //       }
-        //     }
-        //   } as any
-        // });
-
-
-        // const textOutput = aiResponse.response.text();
-        // if (!textOutput || textOutput.trim() === '') {
-        //   remainingQuestionsToProcess -= currentBatchSize;
-        //   continue;
-        // }
-
-        // console.log(textOutput)
-
-        // const parsedQuestionsArray = JSON.parse(textOutput);
-        const parsedQuestionsArray = [{
-          "competency_name": "Demonstrates ways to save water in daily activities.",
-          "instruction": "<p>Read the following scenario carefully and answer the question that follows.</p>",
-          "stimulus": "<p>The Sharma family noticed their monthly water bill was unexpectedly high. To address this, they decided to implement various water-saving practices at home. Mrs. Sharma suggested focusing on daily routines like bathing and washing dishes. Mr. Sharma emphasized the importance of fixing any leaks immediately. Their children, Rohan and Priya, were asked to identify and adopt ways to reduce water consumption in their personal activities.</p>",
-          "question_text": "<p>Which of the following actions by Rohan and Priya would <b>most effectively</b> help the Sharma family conserve water?</p>",
-          "requires_image": false,
-          "image_prompt": null,
-          "correct_option": "C",
-          "options": [
-            {
-              "id": "A",
-              "text": "<p>Taking longer showers to ensure thorough cleanliness.</p>",
-              "requires_image": false,
-              "image_prompt": null,
-              "rationale": "<p><b>Incorrect:</b> Taking longer showers significantly increases water usage, which goes against the goal of water conservation. Shorter showers or alternative bathing methods are more effective for saving water.</p>"
-            },
-            {
-              "id": "B",
-              "text": "<p>Leaving the tap running while brushing their teeth.</p>",
-              "requires_image": false,
-              "image_prompt": null,
-              "rationale": "<p><b>Incorrect:</b> Leaving the tap running while brushing teeth wastes a substantial amount of water. Turning off the tap during such activities is a simple and effective water-saving habit.</p>"
-            },
-            {
-              "id": "C",
-              "text": "<p>Using a bucket and mug for bathing instead of a shower.</p>",
-              "requires_image": false,
-              "image_prompt": null,
-              "rationale": "<p><b>Correct:</b> Using a bucket and mug for bathing usually consumes much less water than using a running shower. This is one of the most effective ways to conserve water in daily life.</p>"
-            },
-            {
-              "id": "D",
-              "text": "<p>Watering the garden plants every day in the afternoon sun.</p>",
-              "requires_image": false,
-              "image_prompt": null,
-              "rationale": "<p><b>Incorrect:</b> Watering plants during the afternoon leads to higher evaporation, causing unnecessary water loss. Watering plants early in the morning or late in the evening is much more efficient.</p>"
+        const aiResponse = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: cleanPrompt }] }],
+          generationConfig: {
+            temperature: 0.45,
+            maxOutputTokens: 3000,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'ARRAY',
+              description: 'List of generated competency based questions matching strict validation rules.',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  competency_name: { type: 'STRING', description: 'The exact name of the competency picked from the allowed list.' },
+                  instruction: { type: 'STRING', description: 'Clear and crisp instruction with HTML <p> and <b> tags. Example: <p>Read the following text carefully and answer the question.</p>' },
+                  stimulus: { type: 'STRING', description: 'Real-life context, scenario, or dataset with HTML <p> and <b> tags. Use <p> for paragraphs and <b> for emphasis on key data points.' },
+                  question_text: { type: 'STRING', description: 'The question stem with HTML <p> and <b> tags. Must be clear and grammatically correct.' },
+                  requires_image: { type: 'BOOLEAN' },
+                  image_prompt: { type: 'STRING', description: 'Detailed visual blueprint if requires_image is true, else null.' },
+                  correct_option: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
+                  options: {
+                    type: 'ARRAY',
+                    items: {
+                      type: 'OBJECT',
+                      properties: {
+                        id: { type: 'STRING', enum: ['A', 'B', 'C', 'D'] },
+                        text: {
+                          type: 'STRING',
+                          description: 'Plausible option text with HTML <p> and <b> tags. Use <b> for key terms within the option.'
+                        },
+                        requires_image: { type: 'BOOLEAN' },
+                        image_prompt: {
+                          type: 'STRING',
+                          description: 'Visual prompt if option is an image, else null.'
+                        },
+                        rationale: {
+                          type: 'STRING',
+                          description: 'Actionable feedback with HTML <p> and <b> tags. Use <b> to highlight why the option is correct or what misconception it represents. Example: <p><b>Correct:</b> The formula for area is length × breadth.</p>'
+                        }
+                      },
+                      required: ['id', 'text', 'requires_image', 'image_prompt', 'rationale']
+                    }
+                  }
+                },
+                required: ['competency_name', 'instruction', 'stimulus', 'question_text', 'requires_image', 'image_prompt', 'correct_option', 'options']
+              }
             }
-          ]
-        }]
+          } as any
+        });
+
+
+        const textOutput = aiResponse.response.text();
+        if (!textOutput || textOutput.trim() === '') {
+          remainingQuestionsToProcess -= currentBatchSize;
+          continue;
+        }
+
+        console.log(textOutput)
+
+        const parsedQuestionsArray = JSON.parse(textOutput);
+        // const parsedQuestionsArray = [{
+        //   "competency_name": "Demonstrates ways to save water in daily activities.",
+        //   "instruction": "<p>Read the following scenario carefully and answer the question that follows.</p>",
+        //   "stimulus": "<p>The Sharma family noticed their monthly water bill was unexpectedly high. To address this, they decided to implement various water-saving practices at home. Mrs. Sharma suggested focusing on daily routines like bathing and washing dishes. Mr. Sharma emphasized the importance of fixing any leaks immediately. Their children, Rohan and Priya, were asked to identify and adopt ways to reduce water consumption in their personal activities.</p>",
+        //   "question_text": "<p>Which of the following actions by Rohan and Priya would <b>most effectively</b> help the Sharma family conserve water?</p>",
+        //   "requires_image": false,
+        //   "image_prompt": null,
+        //   "correct_option": "C",
+        //   "options": [
+        //     {
+        //       "id": "A",
+        //       "text": "<p>Taking longer showers to ensure thorough cleanliness.</p>",
+        //       "requires_image": false,
+        //       "image_prompt": null,
+        //       "rationale": "<p><b>Incorrect:</b> Taking longer showers significantly increases water usage, which goes against the goal of water conservation. Shorter showers or alternative bathing methods are more effective for saving water.</p>"
+        //     },
+        //     {
+        //       "id": "B",
+        //       "text": "<p>Leaving the tap running while brushing their teeth.</p>",
+        //       "requires_image": false,
+        //       "image_prompt": null,
+        //       "rationale": "<p><b>Incorrect:</b> Leaving the tap running while brushing teeth wastes a substantial amount of water. Turning off the tap during such activities is a simple and effective water-saving habit.</p>"
+        //     },
+        //     {
+        //       "id": "C",
+        //       "text": "<p>Using a bucket and mug for bathing instead of a shower.</p>",
+        //       "requires_image": false,
+        //       "image_prompt": null,
+        //       "rationale": "<p><b>Correct:</b> Using a bucket and mug for bathing usually consumes much less water than using a running shower. This is one of the most effective ways to conserve water in daily life.</p>"
+        //     },
+        //     {
+        //       "id": "D",
+        //       "text": "<p>Watering the garden plants every day in the afternoon sun.</p>",
+        //       "requires_image": false,
+        //       "image_prompt": null,
+        //       "rationale": "<p><b>Incorrect:</b> Watering plants during the afternoon leads to higher evaporation, causing unnecessary water loss. Watering plants early in the morning or late in the evening is much more efficient.</p>"
+        //     }
+        //   ]
+        // }]
 
         if (Array.isArray(parsedQuestionsArray)) {
           for (const singleQuestionData of parsedQuestionsArray) {
@@ -1722,7 +1921,8 @@ export class UsersService {
               competencyData.logicalSyllabusGradeId,
               dto.subjectId,
               competency.id,
-              singleQuestionData
+              singleQuestionData,
+              dto.term
             );
 
             successfullyGeneratedQuestions.push(savedRecord);
@@ -1753,7 +1953,8 @@ export class UsersService {
     syllabusGradeId: number,
     subjectId: number,
     competencyId: number,
-    aiData: any
+    aiData: any,
+    term: string
   ) {
     const queryRunner = this.dataSource.createQueryRunner();
 
@@ -1762,7 +1963,7 @@ export class UsersService {
 
     try {
       const qImageStatus = aiData.requires_image ? 'pending' : 'none';
-
+      const termId = term == 'Term 1' ? '1' : '2';
       // ----------------------------
       // Insert Question
       // ----------------------------
@@ -1778,9 +1979,9 @@ export class UsersService {
         question_text,
         requires_image,
         image_prompt,
-        image_status,correct_option,status
+        image_status,correct_option,status,termId
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?)
     `;
 
       const questionInsertResult = await queryRunner.query(
@@ -1796,7 +1997,8 @@ export class UsersService {
           aiData.requires_image ? 1 : 0,
           aiData.image_prompt,
           qImageStatus, aiData.correct_option,
-          2
+          2,
+          termId
         ]
       );
 

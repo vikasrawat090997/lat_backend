@@ -231,21 +231,25 @@ export class UsersController {
   @ApiQuery({ name: 'subject', required: false, type: String })
   @ApiQuery({ name: 'competency', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, type: String })
+  @ApiQuery({ name: 'termId', required: false, type: String })
   async getQuestionList(
     @Query('search') search?: string,
     @Query('grade') grade?: string,
     @Query('subject') subject?: string,
     @Query('competency') competency?: string,
     @Query('status') status?: string,
+    @Query('termId') termId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    console.log(termId);
     return this.usersService.getQuestionList({
       search,
       grade,
       subject,
       competency,
       status,
+      termId,
       page: Number(page) || 1,
       limit: Number(limit) || 10,
     });

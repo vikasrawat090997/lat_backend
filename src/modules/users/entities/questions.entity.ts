@@ -98,6 +98,13 @@ export class Question {
     status: number;
 
     @Column({
+        type: 'int',
+        default: null,
+
+    })
+    termId: number;
+
+    @Column({
         type: 'bigint',
         nullable: true,
     })
