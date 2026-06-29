@@ -286,6 +286,31 @@ export class UsersController {
     );
   }
 
+  @Post('questions/upload-image')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadQuestionImage(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: any,
+  ) {
+    const data = body || req.body || {};
+    const questionId = Number(data.questionId);
+    const optionLetter = data.optionLetter;
+
+    if (!questionId) {
+      throw new BadRequestException('questionId is required');
+    }
+    if (!file) {
+      throw new BadRequestException('file is required');
+    }
+
+    const host = req.headers.host || '192.168.0.233:3001';
+    const protocol = req.secure ? 'https' : 'http';
+    const baseUrl = `${protocol}://${host}`;
+    return this.usersService.uploadAndSaveImage(questionId, file, baseUrl, optionLetter);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post('students/exam/check')
   async checkExamStatus(@Body() dto: CheckExamDto) {

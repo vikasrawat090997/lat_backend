@@ -2002,7 +2002,7 @@ export class UsersService {
           aiData.stimulus,
           aiData.question_text,
           aiData.requires_image ? 1 : 0,
-          aiData.image_prompt,
+          aiData.image_prompt == "null" ? null : aiData.image_prompt,
           qImageStatus, aiData.correct_option,
           2,
           termId
@@ -2400,6 +2400,79 @@ export class UsersService {
         `,
           [fullUrl, questionId],
         );
+
+        // Cascade generation for options having prompt and no image URL
+        console.log('Main question image successfully generated. Checking options for cascade generation...');
+        try {
+          const options = await this.dataSource.query(
+            `SELECT id, option_letter, image_prompt, image_url 
+             FROM question_options 
+             WHERE question_id = ?`,
+            [questionId]
+          );
+
+          for (const opt of options) {
+            const optPrompt = opt.image_prompt;
+            const optUrl = opt.image_url;
+            const optLetter = opt.option_letter;
+
+            if (optPrompt && (!optUrl || optUrl.trim() === '')) {
+              console.log(`Auto-generating image for option ${optLetter} with prompt: "${optPrompt}"`);
+
+              const optUploadDir = path.join(process.cwd(), 'uploads', 'option');
+              if (!fs.existsSync(optUploadDir)) {
+                fs.mkdirSync(optUploadDir, { recursive: true });
+              }
+
+              const optTimestamp = Date.now();
+              const optFileName = `option_${questionId}_${optLetter}_${optTimestamp}.jpg`;
+              const optFilePath = path.join(optUploadDir, optFileName);
+
+              let optSuccess = false;
+              try {
+                const encodedOptPrompt = encodeURIComponent(optPrompt);
+                const optImageUrl = `https://image.pollinations.ai/prompt/${encodedOptPrompt}?width=1024&height=1024&seed=${optTimestamp}&model=flux`;
+
+                const optResponse = await fetch(optImageUrl);
+                if (optResponse.ok) {
+                  const optContentType = optResponse.headers.get('content-type');
+                  if (optContentType?.startsWith('image/')) {
+                    const optBuffer = Buffer.from(await optResponse.arrayBuffer());
+                    if (optBuffer.length > 0) {
+                      await fs.promises.writeFile(optFilePath, optBuffer);
+                      optSuccess = true;
+                    }
+                  }
+                }
+              } catch (optErr: any) {
+                console.error(`Error auto-generating image for option ${optLetter}:`, optErr.message);
+              }
+
+              if (optSuccess) {
+                const optRelativeUrl = `/option/${optFileName}`;
+                const optFullUrl = `${baseUrl}${optRelativeUrl}`;
+
+                await this.dataSource.query(
+                  `UPDATE question_options
+                   SET image_url = ?, requires_image = 1, image_status = 'completed'
+                   WHERE question_id = ? AND option_letter = ?`,
+                  [optFullUrl, questionId, optLetter]
+                );
+                console.log(`Option ${optLetter} image saved and database updated successfully.`);
+              } else {
+                await this.dataSource.query(
+                  `UPDATE question_options
+                   SET image_status = 'failed'
+                   WHERE question_id = ? AND option_letter = ?`,
+                  [questionId, optLetter]
+                );
+                console.error(`Option ${optLetter} image generation failed.`);
+              }
+            }
+          }
+        } catch (optCascadeErr: any) {
+          console.error('Error in options cascade generation:', optCascadeErr.message);
+        }
       }
 
       return {
@@ -2432,5 +2505,54 @@ export class UsersService {
     }
 
     throw new BadRequestException('Failed to generate image using AI.');
+  }
+
+  async uploadAndSaveImage(
+    questionId: number,
+    file: Express.Multer.File,
+    baseUrl: string,
+    optionLetter?: string,
+  ) {
+    const isOption = !!optionLetter;
+    const subFolder = isOption ? 'option' : 'question';
+    const uploadDir = path.join(process.cwd(), 'uploads', subFolder);
+
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const ext = file.originalname.split('.').pop() || 'jpg';
+    const timestamp = Date.now();
+    const fileName = isOption
+      ? `option_${questionId}_${optionLetter}_${timestamp}.${ext}`
+      : `question_${questionId}_${timestamp}.${ext}`;
+    const filePath = path.join(uploadDir, fileName);
+
+    await fs.promises.writeFile(filePath, file.buffer);
+
+    const relativeUrl = `/${subFolder}/${fileName}`;
+    const fullUrl = `${baseUrl}${relativeUrl}`;
+
+    if (isOption) {
+      await this.dataSource.query(
+        `UPDATE question_options
+         SET image_url = ?, requires_image = 1, image_status = 'completed'
+         WHERE question_id = ? AND option_letter = ?`,
+        [fullUrl, questionId, optionLetter],
+      );
+    } else {
+      await this.dataSource.query(
+        `UPDATE questions
+         SET image_url = ?, requires_image = 1, image_status = 'completed'
+         WHERE id = ?`,
+        [fullUrl, questionId],
+      );
+    }
+
+    return {
+      success: true,
+      imageUrl: fullUrl,
+      fileName,
+    };
   }
 }
