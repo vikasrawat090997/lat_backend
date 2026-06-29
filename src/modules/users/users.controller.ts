@@ -183,6 +183,7 @@ export class UsersController {
   @ApiQuery({ name: 'section', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, type: String })
   async getStudentList(
+    @Req() req: any,
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
@@ -191,6 +192,7 @@ export class UsersController {
     @Query('status') status?: string,
   ) {
     return this.usersService.getStudentList(
+      +req.user.userId,
       Number(page),
       Number(limit),
       search,
@@ -389,7 +391,11 @@ export class UsersController {
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
   ) {
-    return this.usersService.getReviewerList(Number(page), Number(limit), search);
+    return this.usersService.getReviewerList(
+      Number(page),
+      Number(limit),
+      search,
+    );
   }
 
   @UseGuards(JwtAuthGuard)

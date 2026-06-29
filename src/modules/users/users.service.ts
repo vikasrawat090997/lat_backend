@@ -1137,6 +1137,7 @@ export class UsersService {
   }
 
   async getStudentList(
+    userId: number,
     page: number,
     limit: number,
     search?: string,
@@ -1191,6 +1192,12 @@ export class UsersService {
       params.push(gradeId);
       countQuery += ` AND sm.gradeId = ?`;
       countParams.push(gradeId);
+    }
+    if (userId) {
+      query += ` AND sm.createdBy = ?`;
+      params.push(userId);
+      countQuery += ` AND sm.createdBy = ?`;
+      countParams.push(userId);
     }
 
     if (section) {
@@ -1628,12 +1635,104 @@ export class UsersService {
     'waste',
     'conservation',
   ];
+  // async fetchCompetencies(dto: {
+  //   gradeId: number;
+  //   subjectId: number;
+  //   term: string;
+  // }) {
+  //   let targetGradeId = Number(dto.gradeId);
+  //   let isEvsFallback = false;
+
+  //   // Term 1 logic
+  //   if (dto.term === 'Term 1') {
+  //     if (targetGradeId === 6) targetGradeId = 5;
+  //     else if (targetGradeId === 9) targetGradeId = 8;
+  //     else if (targetGradeId === 12) targetGradeId = 11;
+  //   }
+
+  //   // EVS fallback condition
+  //   if (
+  //     Number(dto.gradeId) === 6 &&
+  //     Number(dto.subjectId) === 6 &&
+  //     dto.term === 'Term 1'
+  //   ) {
+  //     isEvsFallback = true;
+  //   }
+
+  //   let rows: any[] = [];
+
+  //   if (isEvsFallback) {
+  //     const query = `
+  //     SELECT
+  //       c.id,
+  //       c.name,
+  //       c.description
+  //     FROM competencymaster c
+  //     WHERE c.gradeId = ?
+  //       AND c.status = 1
+  //   `;
+
+  //     rows = await this.dataSource.query(query, [targetGradeId]);
+  //     console.log(rows);
+  //     if (!Array.isArray(rows)) {
+  //       rows = [];
+  //     }
+
+  //     rows = rows.filter((comp) => {
+  //       const textToSearch = `${comp.name || ''} ${
+  //         comp.description || ''
+  //       }`.toLowerCase();
+
+  //       return this.evsKeywords.some((keyword) =>
+  //         textToSearch.includes(keyword.toLowerCase()),
+  //       );
+  //     });
+
+  //     if (rows.length === 0) {
+  //       throw new NotFoundException(
+  //         `No valid EVS fallback competencies matched the environmental criteria for Grade ${dto.gradeId}, Subject ID ${dto.subjectId}, ${dto.term}`,
+  //       );
+  //     }
+  //   } else {
+  //     const query = `
+  //     SELECT
+  //       c.id,
+  //       c.name,
+  //       c.description
+  //     FROM competencymaster c
+  //     INNER JOIN subjectcompetencymapping sc
+  //       ON c.id = sc.competencyId
+  //     WHERE c.gradeId = ?
+  //       AND sc.subjectId = ?
+  //       AND c.status = 1
+  //       AND sc.status = 1
+  //   `;
+
+  //     rows = await this.dataSource.query(query, [targetGradeId, dto.subjectId]);
+
+  //     if (!Array.isArray(rows) || rows.length === 0) {
+  //       throw new NotFoundException(
+  //         `No competencies found matching Grade ${dto.gradeId}, Subject ID ${dto.subjectId}, ${dto.term}`,
+  //       );
+  //     }
+  //   }
+
+  //   return {
+  //     success: true,
+  //     termApplied: dto.term,
+  //     logicalSyllabusGradeId: targetGradeId,
+  //     competencyCount: rows.length,
+  //     data: rows,
+  //   };
+  // }
+
   async fetchCompetencies(dto: {
     gradeId: number;
     subjectId: number;
     term: string;
   }) {
-    let targetGradeId = Number(dto.gradeId);
+    const currentGradeId = Number(dto.gradeId);
+    let targetGradeId = currentGradeId;
     let isEvsFallback = false;
 
     // Term 1 logic
@@ -1643,51 +1742,7 @@ export class UsersService {
       else if (targetGradeId === 12) targetGradeId = 11;
     }
 
-    // EVS fallback condition
-    if (
-      Number(dto.gradeId) === 6 &&
-      Number(dto.subjectId) === 6 &&
-      dto.term === 'Term 1'
-    ) {
-      isEvsFallback = true;
-    }
-
-    let rows: any[] = [];
-
-    if (isEvsFallback) {
-      const query = `
-      SELECT 
-        c.id,
-        c.name,
-        c.description
-      FROM competencymaster c
-      WHERE c.gradeId = ?
-        AND c.status = 1
-    `;
-
-      rows = await this.dataSource.query(query, [targetGradeId]);
-      console.log(rows);
-      if (!Array.isArray(rows)) {
-        rows = [];
-      }
-
-      rows = rows.filter((comp) => {
-        const textToSearch = `${comp.name || ''} ${
-          comp.description || ''
-        }`.toLowerCase();
-
-        return this.evsKeywords.some((keyword) =>
-          textToSearch.includes(keyword.toLowerCase()),
-        );
-      });
-
-      if (rows.length === 0) {
-        throw new NotFoundException(
-          `No valid EVS fallback competencies matched the environmental criteria for Grade ${dto.gradeId}, Subject ID ${dto.subjectId}, ${dto.term}`,
-        );
-      }
-    } else {
-      const query = `
+    const query = `
       SELECT
         c.id,
         c.name,
@@ -1700,14 +1755,27 @@ export class UsersService {
         AND c.status = 1
         AND sc.status = 1
     `;
+    let rows: any[] = [];
+    // First try lower grade
+    rows = await this.dataSource.query(query, [targetGradeId, dto.subjectId]);
 
-      rows = await this.dataSource.query(query, [targetGradeId, dto.subjectId]);
+    // If no competencies, use current grade
+    if (
+      (!Array.isArray(rows) || rows.length === 0) &&
+      targetGradeId !== currentGradeId
+    ) {
+      rows = await this.dataSource.query(query, [
+        currentGradeId,
+        dto.subjectId,
+      ]);
 
-      if (!Array.isArray(rows) || rows.length === 0) {
-        throw new NotFoundException(
-          `No competencies found matching Grade ${dto.gradeId}, Subject ID ${dto.subjectId}, ${dto.term}`,
-        );
-      }
+      targetGradeId = currentGradeId;
+    }
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new NotFoundException(
+        `No competencies found matching Grade ${dto.gradeId}, Subject ID ${dto.subjectId}, ${dto.term}`,
+      );
     }
 
     return {
@@ -1718,224 +1786,6 @@ export class UsersService {
       data: rows,
     };
   }
-
-  // async processBatchGenerationB(dto: GenerateQuestionsDto) {
-  //   // Step A: Fetch available competencies based on your grade, subject, and term rules
-  //   const competencyData = await this.fetchCompetencies({
-  //     gradeId: dto.displayGradeId,
-  //     subjectId: dto.subjectId,
-  //     term: dto.term
-  //   });
-
-  //   let targetCompetencies = [];
-
-  //   if (!dto.competencyIds || dto.competencyIds.length === 0) {
-  //     targetCompetencies = competencyData.data;
-  //   } else {
-  //     targetCompetencies = competencyData.data.filter(c =>
-  //       dto.competencyIds.includes(Number(c.id))
-  //     );
-  //     if (targetCompetencies.length === 0) {
-  //       throw new BadRequestException(`None of the provided Competency IDs match this context.`);
-  //     }
-  //   }
-
-  //   // 🎯 Step B: Look up targeted question generation counts from configuration database mapping table
-  //   const configQuery = `
-  //     SELECT mandatory_question_count as count FROM grade_subject_question_mapping where grade_id = ? and subject_id = ?;
-  //   `;
-  //   const configResult = await this.dataSource.query(configQuery, [dto.displayGradeId, dto.subjectId]);
-  //   const dbCount = (configResult && configResult.length > 0) ? Number(configResult[0].count) : 1;
-
-  //   let targetedGenCount = dbCount;
-
-  //   if (dto.count && dto.count > 0) {
-  //     if (dto.count > dbCount) {
-  //       throw new BadRequestException(`Requested question count (${dto.count}) exceeds the database limit (${dbCount}).`);
-  //     }
-  //     targetedGenCount = dto.count;
-  //   }
-
-  //   const model = this.aiClient.getGenerativeModel({
-  //     model: 'gemini-2.5-flash',
-  //   });
-  //   const successfullyGeneratedQuestions = [];
-  //   const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-  //   // Step C: Loop over evaluated targeting competencies
-  //   for (const comp of targetCompetencies) {
-  //     let remainingQuestionsToProcess = targetedGenCount;
-
-  //     // 🔄 Step D: Chunking logic loop (Limits requests to max 5 items per system prompt call)
-  //     while (remainingQuestionsToProcess > 0) {
-  //       const currentBatchSize = Math.min(remainingQuestionsToProcess, 5);
-  //       remainingQuestionsToProcess -= currentBatchSize;
-
-  //       try {
-
-  //         const cleanPrompt = `
-  // Generate ${currentBatchSize} competency-based MCQs.
-
-  // Grade: ${dto.displayGradeId}
-  // Skill Level: ${competencyData.logicalSyllabusGradeId}
-  // Competency: ${comp.name}
-
-  // Rules:
-  // - Real-life application questions only.
-  // - Avoid memorization and direct textbook recall.
-  // - Use <p> and <b> HTML tags.
-  // - Exactly 4 options (A,B,C,D).
-  // - Exactly 1 correct answer.
-
-  // IMAGE RULES:
-  // - Decide independently whether the QUESTION requires an image.
-  // - Decide independently whether any OPTION requires an image.
-  // - Images should be used when they improve assessment quality.
-  // - Use images for:
-  //   plants, animals, objects, shapes, maps, patterns,
-  //   measurements, comparisons, observations,
-  //   surroundings, activities, community places,
-  //   weather, transport and real-life situations.
-
-  // QUESTION IMAGE:
-  // - If question requires image:
-  //   "requires_image": true
-  //   and generate detailed "image_prompt".
-  // - Otherwise:
-  //   "requires_image": false
-  //   and "image_prompt": null.
-
-  // OPTION IMAGE:
-  // - Each option may also require an image.
-  // - If option requires image:
-  //   "requires_image": true
-  //   and generate detailed "image_prompt".
-  // - Otherwise:
-  //   "requires_image": false
-  //   and "image_prompt": null.
-
-  // Return JSON only.
-  // No markdown.
-  // No explanation.
-
-  // Format:
-  // [
-  //   {
-  //     "question_text":"",
-  //     "requires_image":true,
-  //     "image_prompt":"",
-
-  //     "correct_option":"A",
-
-  //     "options":[
-  //       {
-  //         "id":"A",
-  //         "text":"",
-  //         "requires_image":true,
-  //         "image_prompt":""
-  //       },
-  //       {
-  //         "id":"B",
-  //         "text":"",
-  //         "requires_image":false,
-  //         "image_prompt":null
-  //       },
-  //       {
-  //         "id":"C",
-  //         "text":"",
-  //         "requires_image":false,
-  //         "image_prompt":null
-  //       },
-  //       {
-  //         "id":"D",
-  //         "text":"",
-  //         "requires_image":false,
-  //         "image_prompt":null
-  //       }
-  //     ]
-  //   }
-  // ]
-  // `;
-  //         console.log(cleanPrompt);
-  //         const aiResponse = await model.generateContent(cleanPrompt);
-
-  //         const textOutput = aiResponse.response.text();
-  //         console.log(textOutput);
-  //         // return
-  //         if (!textOutput) continue;
-
-  //         const cleanedJsonString = textOutput.replace(/^```json\s*|```$/g, '');
-  //         const parsedQuestionsArray = JSON.parse(cleanedJsonString);
-
-  //         // Iterate and save every generated item returned in the sub-batch array
-  //         if (Array.isArray(parsedQuestionsArray)) {
-  //           // for (const singleQuestionData of parsedQuestionsArray) {
-  //           //   const savedRecord = await this.saveQuestionToDatabase(
-  //           //     dto.displayGradeId,
-  //           //     competencyData.logicalSyllabusGradeId,
-  //           //     dto.subjectId,
-  //           //     comp.id,
-  //           //     singleQuestionData
-  //           //   );
-  //           //   successfullyGeneratedQuestions.push(savedRecord);
-  //           // }
-
-  //           for (const comp of targetCompetencies) {
-  //             try {
-
-  //               const aiResponse = await model.generateContent(cleanPrompt);
-
-  //               const textOutput = aiResponse.response.text();
-
-  //               let cleanedJsonString = textOutput
-  //                 .replace(/```json/g, '')
-  //                 .replace(/```/g, '')
-  //                 .trim();
-
-  //               const parsedData = JSON.parse(cleanedJsonString);
-
-  //               const questions = Array.isArray(parsedData)
-  //                 ? parsedData
-  //                 : [parsedData];
-
-  //               for (const question of questions) {
-  //                 const savedRecord =
-  //                   await this.saveQuestionToDatabase(
-  //                     dto.displayGradeId,
-  //                     competencyData.logicalSyllabusGradeId,
-  //                     dto.subjectId,
-  //                     comp.id,
-  //                     question,
-  //                   );
-
-  //                 successfullyGeneratedQuestions.push(savedRecord);
-  //               }
-
-  //               await delay(5000);
-
-  //             } catch (error) {
-  //               console.error(
-  //                 `Competency ${comp.id} failed`,
-  //                 error,
-  //               );
-  //             }
-  //           }
-  //         }
-
-  //       } catch (error) {
-  //         console.error(`Failed question sub-batch processing for Competency ID ${comp.id}:`, error.message);
-  //         // If a sub-batch fails, break out or continue based on your error policy
-  //       }
-  //     }
-  //   }
-
-  //   return {
-  //     success: true,
-  //     totalCompetenciesProcessed: targetCompetencies.length,
-  //     targetQuestionsPerCompetency: targetedGenCount,
-  //     totalSuccessfullySaved: successfullyGeneratedQuestions.length,
-  //     questions: successfullyGeneratedQuestions
-  //   };
-  // }
 
   async processBatchGeneration(dto: GenerateQuestionsDto) {
     // Step A: Fetch available competencies based on your grade, subject, and term rules
