@@ -242,7 +242,7 @@ export class UsersController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    console.log(termId);
+
     return this.usersService.getQuestionList({
       search,
       grade,
@@ -259,6 +259,31 @@ export class UsersController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async generateBatchQuestions(@Body() dto: GenerateQuestionsDto) {
     return await this.usersService.processBatchGeneration(dto);
+  }
+
+  @Post('questions/generate-image')
+  async generateQuestionImage(
+    @Req() req: any,
+    @Body() body: any
+  ) {
+    const data = body || req.body || {};
+    const questionId = Number(data.questionId);
+    const prompt = data.prompt;
+    const optionLetter = data.optionLetter;
+
+    if (!questionId || !prompt) {
+      throw new BadRequestException('questionId and prompt are required');
+    }
+
+    const host = req.headers.host || '192.168.0.233:3001';
+    const protocol = req.secure ? 'https' : 'http';
+    const baseUrl = `${protocol}://${host}`;
+    return this.usersService.generateAndSaveImage(
+      questionId,
+      prompt,
+      baseUrl,
+      optionLetter
+    );
   }
 
   @UseGuards(JwtAuthGuard)

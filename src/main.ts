@@ -26,8 +26,11 @@ async function bootstrap() {
       transports: logTransport,
     }),
   });
+  // app.useStaticAssets(join(process.cwd(), 'uploads'), {
+  //   prefix: '/uploads/',
+  // });
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
-    prefix: '/uploads/',
+    prefix: '/',
   });
   app.useGlobalFilters(new GlobalHttpExceptionFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());

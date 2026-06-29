@@ -11,6 +11,8 @@ import { DataSource, In, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as exceljs from 'exceljs';
+import * as fs from 'fs';
+import * as path from 'path';
 import { LoginDto } from './dto/login.dto';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
@@ -470,6 +472,7 @@ export class UsersService {
     const [countResult, idRows] = await Promise.all([
       this.dataSource.query(countQuery, params),
       this.dataSource.query(questionIdQuery, [...params, limit, offset]),
+
     ]);
     const total = Number(countResult[0]?.total ?? 0);
 
@@ -498,6 +501,7 @@ export class UsersService {
           q.instruction,
           q.stimulus,
           q.image_Url,
+          q.image_prompt AS imagePrompt,
           q.status,
           q.createdAt,
           q.updatedAt,
@@ -513,6 +517,7 @@ export class UsersService {
           qo.option_text,
           qo.isCorrect,
           qo.image_url AS optionImageUrl,
+          qo.image_prompt AS optionImagePrompt,
           qo.rationale
 
       FROM questions q
@@ -560,6 +565,7 @@ export class UsersService {
                 ? 'Draft'
                 : 'Inactive',
           imageUrl: row.image_Url ?? null,
+          imagePrompt: row.imagePrompt ?? null,
           answerExplanation: '',
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
@@ -574,6 +580,7 @@ export class UsersService {
           text: row.option_text,
           isCorrect: row.isCorrect === 1,
           imageUrl: row.optionImageUrl ?? null,
+          imagePrompt: row.optionImagePrompt ?? null,
           rationale: row.rationale ?? '',
         });
       }
@@ -2271,5 +2278,159 @@ export class UsersService {
         options: qOptions
       };
     });
+  }
+
+
+
+  async generateAndSaveImage(
+    questionId: number,
+    prompt: string,
+    baseUrl: string,
+    optionLetter?: string,
+  ) {
+    const isOption = !!optionLetter;
+    const subFolder = isOption ? 'option' : 'question';
+
+    // Always save in project_root/uploads
+    const uploadDir = path.join(process.cwd(), 'uploads', subFolder);
+
+    // Create directory if not exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const timestamp = Date.now();
+
+    const fileName = isOption
+      ? `option_${questionId}_${optionLetter}_${timestamp}.jpg`
+      : `question_${questionId}_${timestamp}.jpg`;
+
+    const filePath = path.join(uploadDir, fileName);
+
+    console.log('===================================');
+    console.log('Project Root :', process.cwd());
+    console.log('__dirname    :', __dirname);
+    console.log('Upload Dir   :', uploadDir);
+    console.log('File Path    :', filePath);
+    console.log('Prompt       :', prompt);
+    console.log('===================================');
+
+    let success = false;
+
+    try {
+      const encodedPrompt = encodeURIComponent(prompt);
+
+      // Better quality
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${Date.now()}&model=flux`;
+
+      console.log('Downloading:', imageUrl);
+
+      const response = await fetch(imageUrl);
+
+      console.log('Status:', response.status);
+      console.log('Content-Type:', response.headers.get('content-type'));
+
+      if (!response.ok) {
+        throw new Error(`Image API returned ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type');
+
+      if (!contentType?.startsWith('image/')) {
+        const text = await response.text();
+
+        console.error('Invalid Response');
+        console.error(text);
+
+        throw new Error('API did not return an image.');
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+
+      const buffer = Buffer.from(arrayBuffer);
+
+      console.log('Buffer Size:', buffer.length);
+
+      if (buffer.length === 0) {
+        throw new Error('Downloaded image is empty.');
+      }
+
+      await fs.promises.writeFile(filePath, buffer);
+
+      if (!fs.existsSync(filePath)) {
+        throw new Error('File could not be written.');
+      }
+
+      console.log('Image Saved Successfully');
+
+      success = true;
+    } catch (error: any) {
+      console.error('Image Generation Error');
+      console.error(error.message);
+
+      success = false;
+    }
+
+    if (success) {
+      const relativeUrl = `/${subFolder}/${fileName}`;
+      const fullUrl = `${baseUrl}${relativeUrl}`;
+
+      if (isOption) {
+        await this.dataSource.query(
+          `
+        UPDATE question_options
+        SET
+            image_url=?,
+            requires_image=1,
+            image_status='completed'
+        WHERE question_id=?
+        AND option_letter=?
+        `,
+          [fullUrl, questionId, optionLetter],
+        );
+      } else {
+        await this.dataSource.query(
+          `
+        UPDATE questions
+        SET
+            image_url=?,
+            requires_image=1,
+            image_status='completed'
+        WHERE id=?
+        `,
+          [fullUrl, questionId],
+        );
+      }
+
+      return {
+        success: true,
+        imageUrl: fullUrl,
+        fileName,
+      };
+    }
+
+    // Update failed status
+    if (isOption) {
+      await this.dataSource.query(
+        `
+      UPDATE question_options
+      SET image_status='failed'
+      WHERE question_id=?
+      AND option_letter=?
+      `,
+        [questionId, optionLetter],
+      );
+    } else {
+      await this.dataSource.query(
+        `
+      UPDATE questions
+      SET image_status='failed'
+      WHERE id=?
+      `,
+        [questionId],
+      );
+    }
+
+    throw new BadRequestException('Failed to generate image using AI.');
   }
 }
