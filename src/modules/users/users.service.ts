@@ -2402,11 +2402,10 @@ export class UsersService {
 
     const existing = await this.dataSource.query(
       `SELECT se.status FROM student_exam se
-inner join studentmaster sm on sm.id = se.studentId
-WHERE sm.userId = ? AND termId = ? LIMIT 1`,
+inner join studentmaster sm on sm.userId = se.studentId
+WHERE sm.userId = ? AND se.termId = ? LIMIT 1`,
       [dto.studentId, dto.termId],
     );
-
     if (existing && existing.length > 0) {
       if (existing[0].status === 'COMPLETED') {
         return { status: 'COMPLETED' };
