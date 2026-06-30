@@ -7,7 +7,7 @@ import { envList } from './constants/constants';
 import { toBool } from './utils/utils';
 import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { UsersModule } from './modules/users/users.module';
-
+import { ReportModule } from './modules/report/report.module';
 
 @Module({
   imports: [
@@ -42,6 +42,7 @@ import { UsersModule } from './modules/users/users.module';
       autoLoadEntities: true,
     }),
     UsersModule,
+    ReportModule,
   ],
   providers: [],
 })
