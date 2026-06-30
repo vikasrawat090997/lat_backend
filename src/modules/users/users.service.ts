@@ -20,6 +20,8 @@ import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GenerateQuestionsDto } from './dto/generate-questions.dto';
+import { MailService } from './mail.service';
+import { generateRandomString } from 'src/utils/utils';
 import {
   CheckExamDto,
   StartExamDto,
@@ -33,6 +35,7 @@ export class UsersService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly dataSource: DataSource,
+    private readonly mailService: MailService,
   ) {
     this.aiClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   }
@@ -837,8 +840,8 @@ export class UsersService {
         subjectId,
       } = dto;
 
-      const username = `${firstName.charAt(0)}${mobileNo.substring(0, 4)}_${empCode}`;
-      const rawPassword = `${firstName.substring(0, 2)}${mobileNo.slice(-4)}${email.substring(0, 4)}`;
+      const username = generateRandomString(8, 16);
+      const rawPassword = generateRandomString(8, 16);
       const password = await bcrypt.hash(rawPassword, 10);
 
       const userInsertResult = await queryRunner.query(
@@ -877,9 +880,21 @@ export class UsersService {
 
       await queryRunner.commitTransaction();
 
+      try {
+        await this.mailService.sendTeacherCredentials(
+          email,
+          firstName,
+          username,
+          rawPassword,
+        );
+      } catch (mailError) {
+        // Email failure doesn't rollback the transaction
+      }
+
       return {
         success: true,
         message: 'Teacher created successfully',
+        username,
       };
     } catch (error) {
       if (queryRunner.isTransactionActive) {

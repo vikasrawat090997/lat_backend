@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
+import { MailService } from './mail.service';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -29,7 +30,7 @@ import { StudentExamQuestion } from './entities/student_exam_question.entity';
     AccessControlModule,
   ],
   controllers: [UsersController],
-  providers: [UsersService, JwtStrategy, AuthService, JwtDatabaseAuthGuard],
-  exports: [UsersService],
+  providers: [UsersService, MailService, JwtStrategy, AuthService, JwtDatabaseAuthGuard],
+  exports: [UsersService, MailService],
 })
 export class UsersModule { }

@@ -47,6 +47,29 @@ export function formatDateISOString(date: string) {
   return `${date.split('T')[0]} ${date.split('T')[1]}`;
 }
 
+export function generateRandomString(minLength = 8, maxLength = 16): string {
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lower = 'abcdefghijklmnopqrstuvwxyz';
+  const numbers = '0123456789';
+  const special = '@#$!%*?&';
+  const all = upper + lower + numbers + special;
+  const length = crypto.randomInt(minLength, maxLength + 1);
+  const chars = [
+    upper[crypto.randomInt(0, upper.length)],
+    lower[crypto.randomInt(0, lower.length)],
+    numbers[crypto.randomInt(0, numbers.length)],
+    special[crypto.randomInt(0, special.length)],
+  ];
+  for (let i = chars.length; i < length; i++) {
+    chars.push(all[crypto.randomInt(0, all.length)]);
+  }
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
 export function generateStrongPassword(length = 8): string {
   const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const lower = 'abcdefghijklmnopqrstuvwxyz';
