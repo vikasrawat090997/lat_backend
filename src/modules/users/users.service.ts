@@ -28,6 +28,7 @@ import {
   SubmitExamDto,
   GetExamQuestionsDto,
 } from './dto/exam.dto';
+import { ReviewQuestionDto } from './dto/review-question.dto';
 
 @Injectable()
 export class UsersService {
@@ -3027,6 +3028,28 @@ export class UsersService {
       success: true,
       imageUrl: fullUrl,
       fileName,
+    };
+  }
+
+  async reviewQuestion(id: number, dto: ReviewQuestionDto, reviewerId: number) {
+    const question = await this.dataSource.query(
+      `SELECT id FROM questions WHERE id = ?`,
+      [id],
+    );
+
+    if (!question.length) {
+      throw new NotFoundException('Question not found');
+    }
+
+    const reviewStatus = dto.status === 1 ? '1' : '0';
+    await this.dataSource.query(
+      `UPDATE questions SET status = ?, reviewerId = ?, reviewerRemark = ?, updatedBy = ? WHERE id = ?`,
+      [reviewStatus, reviewerId, dto.remark || null, reviewerId, id],
+    );
+
+    return {
+      success: true,
+      message: `Question ${reviewStatus} successfully`,
     };
   }
 }
