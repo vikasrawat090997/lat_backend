@@ -2742,19 +2742,43 @@ export class UsersService {
   async createReviewer(dto: any) {
     const { firstName, lastName, email, mobileNo } = dto;
 
-    const username = `${firstName?.substring(0, 2)?.toUpperCase()}${mobileNo?.slice(-4)}`;
-    const rawPassword = `${firstName?.substring(0, 2)?.toUpperCase()}${mobileNo?.slice(-4)}@123`;
+    if (!email) {
+      throw new BadRequestException('Email is required');
+    }
+
+    const existing = await this.dataSource.query(
+      `SELECT id FROM usermaster WHERE email = ? LIMIT 1`,
+      [email],
+    );
+    if (existing && existing.length > 0) {
+      throw new BadRequestException(`Reviewer with email ${email} already exists`);
+    }
+
+    const username = generateRandomString(8, 16);
+    const rawPassword = generateRandomString(8, 16);
     const password = await bcrypt.hash(rawPassword, 10);
 
     await this.dataSource.query(
       `INSERT INTO usermaster (roleId, username, firstName, lastName, email, mobileNo, password, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [4, username, firstName, lastName, email || null, mobileNo, password, 1],
+      [4, username, firstName, lastName, email, mobileNo, password, 1],
     );
+
+    try {
+      await this.mailService.sendReviewerCredentials(
+        email,
+        firstName,
+        username,
+        rawPassword,
+      );
+    } catch (mailError) {
+      // Email failure doesn't block creation
+    }
 
     return {
       success: true,
       message: 'Reviewer created successfully',
+      username,
     };
   }
 
