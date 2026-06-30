@@ -40,27 +40,88 @@ export class UsersService {
     this.aiClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
   }
 
-  async login(dto: LoginDto) {
-    const query = `
-      SELECT
-        u.id,
-        u.username,
-        u.firstName,
-        u.lastName,
-        u.email,
-        u.mobileNo,
-        u.password,
-        u.roleId,
-        r.name AS roleName
-      FROM usermaster u
-      INNER JOIN rolemaster r
-        ON r.id = u.roleId
-      WHERE u.username = ?
-      AND u.status = 1
-      LIMIT 1
-    `;
+  // async login(dto: LoginDto) {
+  //   const query = `
+  //     SELECT
+  //       u.id,
+  //       u.username,
+  //       u.firstName,
+  //       u.lastName,
+  //       u.email,
+  //       u.mobileNo,
+  //       u.password,
+  //       u.roleId,
+  //       r.name AS roleName,
+  //       gm.name AS gradeName,
+  //       sm.section,
+  //       sm.rollNo
+  //     FROM usermaster u
+  //     INNER JOIN rolemaster r
+  //       ON r.id = u.roleId
+  //     LEFT JOIN studentmaster sm
+  //       ON sm.userId = u.id
+  //     LEFT JOIN grademaster gm
+  //       ON gm.id = sm.gradeId
+  //     WHERE u.username = ?
+  //     AND u.status = 1
+  //     LIMIT 1
+  //   `;
 
-    const users = await this.dataSource.query(query, [dto.username]);
+  //   const users = await this.dataSource.query(query, [dto.username]);
+
+  //   if (!users.length) {
+  //     throw new UnauthorizedException('Invalid username or password');
+  //   }
+
+  //   const user = users[0];
+
+  //   const passwordMatched = await bcrypt.compare(dto.password, user.password);
+
+  //   if (!passwordMatched) {
+  //     throw new UnauthorizedException('Invalid username or password');
+  //   }
+
+  //   const payload = {
+  //     userId: user.id,
+  //     username: user.username,
+  //     roleId: user.roleId,
+  //     roleName: user.roleName,
+  //   };
+
+  //   const token = await this.jwtService.signAsync(payload);
+
+  //   delete user.password;
+  //   console.log(user);
+  //   return {
+  //     success: true,
+  //     message: 'Login successful',
+  //     accessToken: token,
+  //     user,
+  //   };
+  // }
+
+  async login(dto: LoginDto) {
+    // Step 1: Get basic user details
+    const userQuery = `
+    SELECT
+      u.id,
+      u.username,
+      u.firstName,
+      u.lastName,
+      u.email,
+      u.mobileNo,
+      u.password,
+      u.roleId,
+      r.name AS roleName
+    FROM usermaster u
+    INNER JOIN rolemaster r
+      ON r.id = u.roleId
+    WHERE u.username = ?
+      AND u.status = 1
+    LIMIT 1
+  `;
+
+    const users = await this.dataSource.query(userQuery, [dto.username]);
 
     if (!users.length) {
       throw new UnauthorizedException('Invalid username or password');
@@ -72,6 +133,46 @@ export class UsersService {
 
     if (!passwordMatched) {
       throw new UnauthorizedException('Invalid username or password');
+    }
+
+    // Step 2: Fetch role-specific information
+    if (user.roleId === 3) {
+      // Student Role
+      const studentQuery = `
+      SELECT 
+        gm.name AS gradeName,
+        sm.section,
+        sm.rollNo
+      FROM studentmaster sm
+      LEFT JOIN grademaster gm
+        ON gm.id = sm.gradeId
+      WHERE sm.userId = ?
+      LIMIT 1
+    `;
+
+      const student = await this.dataSource.query(studentQuery, [user.id]);
+
+      if (student.length) {
+        Object.assign(user, student[0]);
+      }
+    }
+
+    if (user.roleId === 2) {
+      // Teacher Role
+      const teacherQuery = `
+      SELECT
+        tm.employeeCode,
+        tm.designation
+      FROM teachermaster tm
+      WHERE tm.userId = ?
+      LIMIT 1
+    `;
+
+      const teacher = await this.dataSource.query(teacherQuery, [user.id]);
+
+      if (teacher.length) {
+        Object.assign(user, teacher[0]);
+      }
     }
 
     const payload = {
@@ -845,7 +946,9 @@ export class UsersService {
         [email],
       );
       if (existing && existing.length > 0) {
-        throw new BadRequestException(`Teacher with email ${email} already exists`);
+        throw new BadRequestException(
+          `Teacher with email ${email} already exists`,
+        );
       }
 
       const username = generateRandomString(8, 16);
@@ -1302,7 +1405,9 @@ export class UsersService {
         [email],
       );
       if (existing && existing.length > 0) {
-        throw new BadRequestException(`Student with email ${email} already exists`);
+        throw new BadRequestException(
+          `Student with email ${email} already exists`,
+        );
       }
 
       const username = generateRandomString(8, 16);
@@ -2751,7 +2856,9 @@ export class UsersService {
       [email],
     );
     if (existing && existing.length > 0) {
-      throw new BadRequestException(`Reviewer with email ${email} already exists`);
+      throw new BadRequestException(
+        `Reviewer with email ${email} already exists`,
+      );
     }
 
     const username = generateRandomString(8, 16);
