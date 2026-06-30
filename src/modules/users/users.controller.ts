@@ -399,6 +399,13 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('reviewer/dashboard')
+  async getReviewerDashboard(@Req() req: any) {
+    const userId = req.user?.userId;
+    return this.usersService.getReviewerDashboard(userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('reviewers')
   async createReviewer(@Body() dto: any) {
     return this.usersService.createReviewer(dto);

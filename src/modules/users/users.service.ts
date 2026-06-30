@@ -841,6 +841,35 @@ export class UsersService {
     };
   }
 
+  async getReviewerDashboard(userId: number) {
+    const [{ totalQuestions }] = await this.dataSource.query(
+      `SELECT COUNT(id) as totalQuestions FROM questions`,
+    );
+
+    const [{ approvedQuestions }] = await this.dataSource.query(
+      `SELECT COUNT(id) as approvedQuestions FROM questions WHERE status = 1 `,
+    );
+
+    const [{ rejectedQuestions }] = await this.dataSource.query(
+      `SELECT COUNT(id) as rejectedQuestions FROM questions WHERE status = 0`,
+    );
+
+    const [{ draftQuestions }] = await this.dataSource.query(
+      `SELECT COUNT(id) as draftQuestions FROM questions WHERE status = 2`,
+    );
+
+    return {
+      success: true,
+      data: {
+        totalQuestions: Number(totalQuestions),
+        approvedQuestions: Number(approvedQuestions),
+        rejectedQuestions: Number(rejectedQuestions),
+        draftQuestions: Number(draftQuestions),
+        isMock: false,
+      },
+    };
+  }
+
   async getTeacherList(
     page: number,
     limit: number,

@@ -15,6 +15,12 @@ export enum ImageStatus {
   FAILED = 'failed',
 }
 
+export enum ReviewStatus {
+  DRAFT = 'draft',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
 @Entity('questions')
 @Index('idx_grade_subject_term', ['displayGrade', 'subjectId'])
 @Index('idx_competency', ['competencyTargetedId'])
@@ -94,6 +100,14 @@ export class Question {
     comment: '1 = Active, 0 = Inactive/Soft Deleted',
   })
   status: number;
+
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: 'draft',
+    comment: 'draft = pending review, approved = accepted, rejected = sent back',
+  })
+  reviewStatus: string;
 
   @Column({
     type: 'int',
