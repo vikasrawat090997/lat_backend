@@ -11,8 +11,6 @@ import { DataSource, In, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as exceljs from 'exceljs';
-import * as fs from 'fs';
-import * as path from 'path';
 import { LoginDto } from './dto/login.dto';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
@@ -29,6 +27,9 @@ import {
   GetExamQuestionsDto,
 } from './dto/exam.dto';
 import { ReviewQuestionDto } from './dto/review-question.dto';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as puppeteer from 'puppeteer';
 
 @Injectable()
 export class UsersService {
@@ -3051,5 +3052,197 @@ WHERE sm.userId = ? AND se.termId = ? LIMIT 1`,
       success: true,
       message: `Question ${reviewStatus} successfully`,
     };
+  }
+
+  async generatePdf(): Promise<Buffer> {
+    const templatePath = path.join(
+      process.cwd(),
+      'uploads',
+      'LAT_2025-26_KVS.html',
+    );
+
+    const yearQuery = await this.dataSource.query(`
+      SELECT createdAt 
+      FROM student_exam 
+      ORDER BY id DESC 
+      LIMIT 1
+    `);
+    const dateVal = yearQuery.length > 0 && yearQuery[0].createdAt ? new Date(yearQuery[0].createdAt) : new Date();
+    const year = dateVal.getFullYear();
+    const session = `${year}-${String(year + 1).slice(-2)}`;
+
+    const day = String(dateVal.getDate()).padStart(2, '0');
+    const month = String(dateVal.getMonth() + 1).padStart(2, '0');
+    const examDate = `${day}-${month}-${dateVal.getFullYear()}`;
+
+    const grades = await this.dataSource.query(`
+      SELECT id, name FROM grademaster 
+      WHERE id IN (6, 9, 12)
+    `);
+
+    const gradeIds = grades.map((g: any) => g.id);
+    const gradeIdsString = gradeIds.length > 0 ? gradeIds.join(',') : '0';
+
+    const regionCountQuery = await this.dataSource.query(`
+      SELECT COUNT(DISTINCT sch.regionId) as count
+      FROM  student_exam se 
+      INNER JOIN studentmaster stu ON se.studentId = stu.userId
+      INNER JOIN schoolmaster sch ON stu.udiseCode = sch.udiseCode
+    `);
+    const kvsCount =
+      regionCountQuery.length > 0 ? Number(regionCountQuery[0].count) : 0;
+
+    const schoolCountQuery = await this.dataSource.query(`
+      SELECT COUNT(DISTINCT sch.id) as count
+      FROM  student_exam se 
+      INNER JOIN studentmaster stu ON se.studentId = stu.userId
+      INNER JOIN schoolmaster sch ON stu.udiseCode = sch.udiseCode
+    `);
+    const schoolsCount = schoolCountQuery.length > 0 ? Number(schoolCountQuery[0].count).toLocaleString() : '0';
+
+    const gradesList = grades.map((g: any) => g.name.replace(/Grade\s*/i, '')).join(', ').replace(/,\s*([^,]+)$/, ' and $1');
+
+    const studentsCountQuery = await this.dataSource.query(`
+      SELECT 
+        gm.name as gradeName,
+        COUNT(DISTINCT se.studentId) as count
+      FROM student_exam se
+      INNER JOIN studentmaster stu ON se.studentId = stu.userId
+      INNER JOIN grademaster gm ON stu.gradeId = gm.id
+      WHERE stu.gradeId IN (${gradeIdsString})
+      GROUP BY gm.name
+    `);
+
+    const studentsParticipatedDetail = studentsCountQuery
+      .map((row: any) => `${row.gradeName}: ${Number(row.count).toLocaleString()}`)
+      .join('<br>\n');
+
+    const getGradeSubjects = async (gradeId: number) => {
+      const targetGrade = grades.find((g: any) => g.id === gradeId);
+      if (!targetGrade) return 'No subjects configured';
+      const subjectsQuery = await this.dataSource.query(`
+         SELECT DISTINCT 
+          se.name as subjectName
+        FROM gradesubjectmapping gsm
+        INNER JOIN subjectmaster se ON se.id = gsm.subjectId
+        WHERE gsm.gradeId = ?
+      `, [targetGrade.id]);
+
+      return subjectsQuery.length > 0
+        ? subjectsQuery.map((s: any) => s.subjectName).join(', ').replace(/,\s*([^,]+)$/, ' and $1')
+        : 'No subjects tested';
+    };
+
+    const grade3Subjects = await getGradeSubjects(6);
+    const grade6Subjects = await getGradeSubjects(9);
+    const grade9Subjects = await getGradeSubjects(12);
+
+    const regionScores = await this.dataSource.query(`
+      SELECT 
+        rm.name as regionName,
+        COUNT(DISTINCT se.studentId) as studentCount,
+        IFNULL(ROUND(AVG(seq.isCorrect) * 100, 2), 0) as avgScore
+      FROM student_exam se
+      INNER JOIN studentmaster stu ON se.studentId = stu.userId
+      INNER JOIN schoolmaster sch ON stu.udiseCode = sch.udiseCode
+      INNER JOIN regionmaster rm ON sch.regionId = rm.id
+      left JOIN student_exam_question seq ON seq.studentExamId = se.id
+      WHERE stu.gradeId IN (${gradeIdsString})
+      GROUP BY sch.regionId, rm.name
+    `);
+
+    const [{ totalStudents, nationalAvg }] = await this.dataSource.query(`
+      SELECT 
+        COUNT(DISTINCT se.studentId) as totalStudents,
+        IFNULL(ROUND(AVG(seq.isCorrect) * 100, 2), 0) as nationalAvg
+      FROM student_exam se
+      INNER JOIN studentmaster stu ON se.studentId = stu.userId
+      INNER JOIN student_exam_question seq ON seq.studentExamId = se.id
+      WHERE stu.gradeId IN (${gradeIdsString})
+    `);
+
+    const listItems = regionScores.map((r: any) => ({
+      name: r.regionName,
+      count: Number(r.studentCount),
+      score: Number(r.avgScore),
+      isNational: false
+    }));
+
+    listItems.push({
+      name: 'All Regions',
+      count: Number(totalStudents || 0),
+      score: Number(nationalAvg || 0),
+      isNational: true
+    });
+
+    listItems.sort((a, b) => b.score - a.score);
+
+    const overallAverageScoresList = listItems.map((item: any) => {
+      const formattedCount = Number(item.count).toLocaleString();
+      const content = `${item.name} (${formattedCount}): ${Number(item.score).toFixed(2)}`;
+      return item.isNational
+        ? `        <li><strong>${content}</strong></li>`
+        : `        <li>${content}</li>`;
+    }).join('\n');
+
+    const realRegionsOnly = listItems.filter((item: any) => !item.isNational);
+    const topRegionName = realRegionsOnly.length > 0 ? realRegionsOnly[0].name : 'No Region';
+
+    const [{ g3Avg }] = await this.dataSource.query(`
+      SELECT IFNULL(ROUND(AVG(seq.isCorrect) * 100, 2), 0) as g3Avg
+      FROM student_exam se
+      INNER JOIN studentmaster stu ON se.studentId = stu.userId
+      INNER JOIN student_exam_question seq ON seq.studentExamId = se.id
+      WHERE stu.gradeId = 6
+    `);
+    const grade3OverallAvg = Number(g3Avg || 0).toFixed(2);
+
+    const grade3PerformanceDescription = `The average score across all KVS regions in Grade 3 is <strong>${grade3OverallAvg}%</strong>, indicating a moderately strong foundational learning level among KVS students. While Grade 3 performance generally mirrors overall regional standings, performance varies across different competencies and subjects.`;
+
+    const data = {
+      session,
+      kvsCount,
+      examDate,
+      schoolsCount,
+      gradesList,
+      studentsParticipatedDetail,
+      grade3Subjects,
+      grade6Subjects,
+      grade9Subjects,
+      nationalAvg: Number(nationalAvg || 0).toFixed(2),
+      overallAverageScoresList, topRegionName, grade3PerformanceDescription
+    };
+    let html = fs.readFileSync(templatePath, 'utf8');
+
+    Object.keys(data).forEach((key) => {
+      html = html.replace(
+        new RegExp(`{{${key}}}`, 'g'),
+        String(data[key] ?? ''),
+      );
+    });
+
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
+    const page = await browser.newPage();
+
+    await page.setContent(html);
+
+    const pdf = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '15mm',
+        right: '15mm',
+        bottom: '15mm',
+        left: '15mm',
+      },
+    });
+
+    await browser.close();
+
+    return Buffer.from(pdf);
   }
 }

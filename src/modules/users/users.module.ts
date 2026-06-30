@@ -30,7 +30,13 @@ import { StudentExamQuestion } from './entities/student_exam_question.entity';
     AccessControlModule,
   ],
   controllers: [UsersController],
-  providers: [UsersService, MailService, JwtStrategy, AuthService, JwtDatabaseAuthGuard],
+  providers: [
+    UsersService,
+    MailService,
+    JwtStrategy,
+    AuthService,
+    JwtDatabaseAuthGuard,
+  ],
   exports: [UsersService, MailService],
 })
-export class UsersModule { }
+export class UsersModule {}
