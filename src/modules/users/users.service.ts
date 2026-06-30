@@ -840,6 +840,14 @@ export class UsersService {
         subjectId,
       } = dto;
 
+      const existing = await this.dataSource.query(
+        `SELECT id FROM usermaster WHERE email = ? LIMIT 1`,
+        [email],
+      );
+      if (existing && existing.length > 0) {
+        throw new BadRequestException(`Teacher with email ${email} already exists`);
+      }
+
       const username = generateRandomString(8, 16);
       const rawPassword = generateRandomString(8, 16);
       const password = await bcrypt.hash(rawPassword, 10);
@@ -1280,24 +1288,25 @@ export class UsersService {
               : section?.toLowerCase() === 'd'
                 ? 'Section D'
                 : section;
-      const first2 = (firstName || '').substring(0, 2).toUpperCase();
-      const mother2 = (motherName || '').substring(0, 2).toUpperCase();
-      const father2 = (fatherName || '').substring(0, 2).toUpperCase();
-
       let dobClean = (dob || '').replace(/[-/]/g, '');
-      let dobDDMM = '0101';
       let dobDbFormat = null;
       if (dobClean.length >= 8) {
-        dobDDMM = dobClean.substring(0, 4);
         const dd = dobClean.substring(0, 2);
         const mm = dobClean.substring(2, 4);
         const yyyy = dobClean.substring(4, 8);
         dobDbFormat = `${yyyy}-${mm}-${dd}`;
       }
 
-      const username = `${first2}${mother2}${father2}${dobDDMM}`;
-      const last4Mobile = (parentMobile || '').slice(-4);
-      const rawPassword = `${first2}${mother2}${father2}${last4Mobile}`;
+      const existing = await this.dataSource.query(
+        `SELECT id FROM usermaster WHERE email = ? LIMIT 1`,
+        [email],
+      );
+      if (existing && existing.length > 0) {
+        throw new BadRequestException(`Student with email ${email} already exists`);
+      }
+
+      const username = generateRandomString(8, 16);
+      const rawPassword = generateRandomString(8, 16);
       const password = await bcrypt.hash(rawPassword, 10);
 
       const userInsertResult = await queryRunner.query(
@@ -1308,7 +1317,7 @@ export class UsersService {
           username,
           firstName,
           lastName,
-          email || null,
+          email,
           parentMobile,
           password,
           1,
@@ -1338,9 +1347,21 @@ export class UsersService {
 
       await queryRunner.commitTransaction();
 
+      try {
+        await this.mailService.sendStudentCredentials(
+          email,
+          firstName,
+          username,
+          rawPassword,
+        );
+      } catch (mailError) {
+        // Email failure doesn't rollback the transaction
+      }
+
       return {
         success: true,
         message: 'Student created successfully',
+        username,
       };
     } catch (error) {
       if (queryRunner.isTransactionActive) {

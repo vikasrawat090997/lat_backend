@@ -20,11 +20,11 @@ export class CreateStudentDto {
   @MaxLength(20)
   parentMobile: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
+  @IsNotEmpty()
   @IsString()
   @MaxLength(255)
-  email?: string;
+  email: string;
 
   @ApiPropertyOptional()
   @IsOptional()
