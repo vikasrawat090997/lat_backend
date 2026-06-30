@@ -162,8 +162,7 @@ export class UsersService {
       // Teacher Role
       const teacherQuery = `
       SELECT
-        tm.employeeCode,
-        tm.designation
+        tm.employeeCode
       FROM teachermaster tm
       WHERE tm.userId = ?
       LIMIT 1
@@ -2402,7 +2401,9 @@ export class UsersService {
     }
 
     const existing = await this.dataSource.query(
-      `SELECT status FROM student_exam WHERE studentId = ? AND termId = ? LIMIT 1`,
+      `SELECT se.status FROM student_exam se
+inner join studentmaster sm on sm.id = se.studentId
+WHERE sm.userId = ? AND termId = ? LIMIT 1`,
       [dto.studentId, dto.termId],
     );
 
