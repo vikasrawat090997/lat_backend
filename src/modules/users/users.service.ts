@@ -2397,7 +2397,7 @@ export class UsersService {
       [dto.termId],
     );
 
-    if (!term || term.length === 0) {
+    if (!term[0]?.isActive) {
       return { status: 'NOT_SCHEDULED' };
     }
 
