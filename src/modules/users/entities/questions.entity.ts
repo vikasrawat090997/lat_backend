@@ -97,7 +97,7 @@ export class Question {
   @Column({
     type: 'tinyint',
     default: 1,
-    comment: '1 = Active, 0 = Inactive/Soft Deleted',
+    comment: '1 = Active, 0 = Rejected, 2= Draft',
   })
   status: number;
 
@@ -105,7 +105,8 @@ export class Question {
     type: 'varchar',
     length: 20,
     default: 'draft',
-    comment: 'draft = pending review, approved = accepted, rejected = sent back',
+    comment:
+      'draft = pending review, approved = accepted, rejected = sent back',
   })
   reviewStatus: string;
 

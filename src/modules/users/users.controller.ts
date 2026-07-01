@@ -14,9 +14,12 @@ import {
   Req,
   ValidationPipe,
   UsePipes,
+  Res,
+  Header,
 } from '@nestjs/common';
-import { ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiQuery, ApiConsumes, ApiBody, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { UsersService } from './users.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
@@ -32,6 +35,7 @@ import {
   SubmitExamDto,
   GetExamQuestionsDto,
 } from './dto/exam.dto';
+import { ReviewQuestionDto } from './dto/review-question.dto';
 
 @Controller('')
 export class UsersController {
@@ -430,5 +434,29 @@ export class UsersController {
     @Body('status') status: number,
   ) {
     return this.usersService.toggleReviewerStatus(userId, status);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('questions/:id/review')
+  async reviewQuestion(
+    @Param('id') id: number,
+    @Body(new ValidationPipe({ whitelist: true })) dto: ReviewQuestionDto,
+    @Req() req: any,
+  ) {
+    const userId = req.user?.userId;
+    return this.usersService.reviewQuestion(id, dto, userId);
+  }
+
+  @Get('download-pdf')
+  async downloadPdf(@Res() res: Response) {
+    const pdf = await this.usersService.generatePdf();
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'attachment; filename=certificate.pdf',
+      'Content-Length': pdf.length,
+    });
+
+    res.end(pdf);
   }
 }
