@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Learners' Achievement Test (LAT) Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 30px;
+            color: #333;
+        }
+
+        h1, h2, h3 { color: #1a446c; }
+
+        .header-box {
+            border: 2px solid #1a446c;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .summary-table, .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            margin-bottom: 25px;
+        }
+
+        .summary-table th, .summary-table td,
+        .data-table th, .data-table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        .summary-table th, .data-table th { background-color: #f2f2f2; }
+
+        .note {
+            font-style: italic;
+            font-size: 0.9em;
+            margin-top: -15px;
+            margin-bottom: 25px;
+        }
+
+        .blockquote {
+            background: #f9f9f9;
+            border-left: 5px solid #1a446c;
+            margin: 1.5em 10px;
+            padding: 0.5em 10px;
+        }
+        
+        .page-break { page-break-after: always; }
+    </style>
+</head>
+<body>
+    <div class="header-box">
+        <h2>SRI AUROBINDO SOCIETY</h2>
+        <h3>Rupantar — Transforming Education</h3>
+        <h1>LEARNERS' ACHIEVEMENT TEST (LAT) {{year}}<br>REPORT FOR KVS</h1>
+        <p><strong>SUBMITTED TO:</strong> KENDRIYA VIDYALAYA SANGATHAN (केन्द्रीय विद्यालय संगठन)</p>
+        <p><strong>SUBMITTED BY:</strong> SRI AUROBINDO SOCIETY</p>
+    </div>
+
+    <h2>About LAT</h2>
+    <p>LAT stands for Learners' Achievement Test. It is a diagnostic test designed to ascertain if students have achieved their learning goals and if they need further remediation. The test is structured around subject-specific competencies and grade-aligned learning outcomes.</p>
+
+    <h2>Objectives of LAT</h2>
+    <ol>
+        <li><strong>Evaluate Students' Academic Performance:</strong> To measure the academic performance of students in various subjects in order to determine whether they have achieved the learning goals or not.</li>
+        <li><strong>Identify Learning Gaps:</strong> To identify areas where students are struggling or have gaps in their understanding.</li>
+        <li><strong>Improve Learning Outcomes:</strong> To use assessment results to improve student learning outcomes and academic performance.</li>
+    </ol>
+
+    <h2>LAT {{year}} in Collaboration with Sri Aurobindo Society (SAS)</h2>
+    <p>Sri Aurobindo Society has played a crucial role in the development of the question paper as well as in the analysis and reporting of LAT {{year}} across {{totals.regions}} KVS regions. SAS is actively involved in the ground-level implementation of the National Education Policy (NEP) 2020 in collaboration with Kendriya Vidyalaya Sangathan (KVS). This collaboration aims to ensure the effective execution of NEP 2020 guidelines and improve the overall quality of education in Kendriya Vidyalayas.</p>
+
+    <p><strong>Date of Test:</strong> The test was conducted on 3rd April {{year}} across {{totals.regions}} KVS regions.</p>
+
+    <h2>Summary</h2>
+    <table class="summary-table">
+        <thead>
+            <tr>
+                <th>Regions Participated</th>
+                <th>Schools Participated</th>
+                <th>Total Students</th>
+                <th>Grade-wise Participation</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{{totals.regions}}</td>
+                <td>{{totals.schools}}</td>
+                <td>{{totals.students}}</td>
+                <td>
+                    {{#each grades}}
+                        Grade {{this.grade}}: {{this.studentsEvaluated}} students<br>
+                    {{/each}}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <table class="summary-table">
+        <thead>
+            <tr>
+                <th>Subjects Evaluated</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>
+                    {{#each subjects}}
+                        {{this.name}}{{#unless @last}}, {{/unless}}
+                    {{/each}}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="page-break"></div>
+
+    <h2>Analysis</h2>
+    <p>The following section presents the overall average scores (all subjects combined) and average scores attained in various subjects by {{totals.regions}} KVS regions across the country that participated in LAT designed by Sri Aurobindo Society. It further explores the competencies achieved by students in each region.</p>
+
+    <h2>Part A: Regional Performance Analysis</h2>
+    <h3>A.1: Overall Score</h3>
+    <p>This section demonstrates the overall scores of the regions based on their performance across different subjects and grades.</p>
+
+    <h3>Overall Average Scores (All Regions Baseline: {{nationalAvg}}%)</h3>
+    <ul>
+        {{#each regions}}
+            <li><strong>{{this.name}}:</strong> {{this.score}}% ({{this.studentsAttempted}} students)</li>
+        {{/each}}
+    </ul>
+
+    <div class="blockquote">
+        <p><strong>{{topRegion.name}}</strong> has emerged as the top-performing region in LAT this year with an average score of {{topRegion.score}}%. Furthermore, the top-performing regions in the LAT represent a diverse and well-distributed geographical spread across India, indicating that high academic performance is not confined to any one zone.</p>
+    </div>
+
+    <div class="page-break"></div>
+
+    <h2>A.2: Grade-wise and Subject-wise performance of all regions</h2>
+    <p>This section presents the overall average and subject-wise scores for grades across the {{totals.regions}} KVS regions that participated in LAT {{year}}.</p>
+
+    {{#each grades}}
+    <h2>Grade {{this.grade}}</h2>
+    <h3>A. Overall Score</h3>
+    <p>The average score across all KVS regions for Grade {{this.grade}} is <strong>{{this.avgScore}}%</strong>, with {{this.studentsEvaluated}} students participating. The strongest competency identified is <strong>{{this.strongestCompetency}}</strong>.</p>
+    {{/each}}
+
+    <div class="page-break"></div>
+
+    <h2>Part C: Subject Performance</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Subject</th>
+                <th>Students Participated</th>
+                <th>National Average</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#each subjects}}
+            <tr>
+                <td><strong>{{this.name}}</strong></td>
+                <td>{{this.studentsAttempted}}</td>
+                <td>{{this.avgScore}}%</td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+    
+    <h2>Part D: Competencies Achieved</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Competency</th>
+                <th>Students Evaluated</th>
+                <th>National Average</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#each competencies}}
+            <tr>
+                <td><strong>{{this.name}}</strong></td>
+                <td>{{this.studentsEvaluated}}</td>
+                <td>{{this.avgScore}}%</td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+
+    <h2>Conclusion</h2>
+    <p>The Learners' Achievement Test provides a comprehensive overview of academic milestones across KVS regions. By identifying specific learning gaps, targeted educational interventions can be designed to address structural challenges, ultimately leading to significant improvements in learning outcomes and overall student success across regional blocks.</p>
+
+    <hr>
+    <p style="text-align: center; font-size: 0.85em; color: #777;">
+        Sri Aurobindo Society — Rupantar Office<br>
+        Shaheed Jeet Singh Marg, Adhchini, New Delhi - 110017
+    </p>
+</body>
+</html>
+
+
