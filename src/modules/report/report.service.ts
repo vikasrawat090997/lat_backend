@@ -61,13 +61,13 @@ export class ReportService {
         MAX(r.name) as region,
         IFNULL(ROUND(AVG(seq.isCorrect) * 100, 2), 0) as avgScore,
         IFNULL(ROUND(COUNT(DISTINCT CASE WHEN se.status = 'COMPLETED' THEN se.id END) / NULLIF(COUNT(DISTINCT se.id), 0) * 100, 1), 0) as completion,
-        COUNT(DISTINCT stu.id) as totalStudents,
+        COUNT(DISTINCT stu.userId) as totalStudents,
         'Active' as status
       FROM schoolmaster sm
       LEFT JOIN regionmaster r ON sm.regionId = r.id
       LEFT JOIN teachermaster tm ON tm.schoolId = sm.id
       LEFT JOIN studentmaster stu ON stu.createdBy = tm.userId
-      LEFT JOIN student_exam se ON se.studentId = stu.id
+      LEFT JOIN student_exam se ON se.studentId = stu.userId
       LEFT JOIN student_exam_question seq ON seq.studentExamId = se.id
       WHERE sm.status = 1
       GROUP BY sm.id
@@ -84,9 +84,9 @@ export class ReportService {
     const query = `
       SELECT 
         rm.id,
-        rm.name as region,
+        rm.name as name,
         IFNULL(ROUND(AVG(seq.isCorrect) * 100, 2), 0) as avgScore,
-        IFNULL(ROUND(COUNT(DISTINCT se.studentId) / NULLIF(COUNT(DISTINCT stu.id), 0) * 100, 1), 0) as participation,
+        IFNULL(ROUND(COUNT(DISTINCT se.studentId) / NULLIF(COUNT(DISTINCT stu.userId), 0) * 100, 1), 0) as participation,
         IFNULL(ROUND(COUNT(DISTINCT CASE WHEN se.status = 'COMPLETED' THEN se.id END) / NULLIF(COUNT(DISTINCT se.id), 0) * 100, 1), 0) as completion,
         COUNT(DISTINCT se.studentId) as studentsAttempted,
         COUNT(DISTINCT CASE WHEN se.id IS NOT NULL THEN sm.id END) as activeSchools
@@ -94,7 +94,7 @@ export class ReportService {
       LEFT JOIN schoolmaster sm ON sm.regionId = rm.id
       LEFT JOIN teachermaster tm ON tm.schoolId = sm.id
       LEFT JOIN studentmaster stu ON stu.createdBy = tm.userId
-      LEFT JOIN student_exam se ON se.studentId = stu.id
+      LEFT JOIN student_exam se ON se.studentId = stu.userId
       LEFT JOIN student_exam_question seq ON seq.studentExamId = se.id
       WHERE rm.status = 1
       GROUP BY rm.id
@@ -147,7 +147,7 @@ export class ReportService {
         '-' as strongestCompetency
       FROM grademaster gm
       LEFT JOIN studentmaster stu ON stu.gradeId = gm.id
-      LEFT JOIN student_exam se ON se.studentId = stu.id
+      LEFT JOIN student_exam se ON se.studentId = stu.userId
       LEFT JOIN student_exam_question seq ON seq.studentExamId = se.id
       WHERE gm.id NOT IN (1,2,3) AND gm.status = 1
       GROUP BY gm.id
@@ -175,7 +175,7 @@ export class ReportService {
       LEFT JOIN usermaster u ON u.id = tm.userId
       LEFT JOIN schoolmaster sm ON sm.id = tm.schoolId
       LEFT JOIN studentmaster stu ON stu.createdBy = tm.userId
-      LEFT JOIN student_exam se ON se.studentId = stu.id
+      LEFT JOIN student_exam se ON se.studentId = stu.userId
       LEFT JOIN student_exam_question seq ON seq.studentExamId = se.id
       WHERE tm.status = 1
       GROUP BY tm.id
@@ -191,7 +191,7 @@ export class ReportService {
   async getStudentReport(filters: ReportFilterDto) {
     const query = `
       SELECT 
-        stu.id,
+        stu.userId as id,
         CONCAT(u.firstName, ' ', u.lastName) as name,
         MAX(gm.name) as grade,
         IFNULL(ROUND(AVG(seq.isCorrect) * 100, 2), 0) as avgScore,
@@ -201,10 +201,10 @@ export class ReportService {
       FROM studentmaster stu
       LEFT JOIN usermaster u ON u.id = stu.userId
       LEFT JOIN grademaster gm ON gm.id = stu.gradeId
-      LEFT JOIN student_exam se ON se.studentId = stu.id
+      LEFT JOIN student_exam se ON se.studentId = stu.userId
       LEFT JOIN student_exam_question seq ON seq.studentExamId = se.id
       WHERE stu.status = 1
-      GROUP BY stu.id
+      GROUP BY stu.userId
     `;
     const result = await this.dataSource.query(query);
     return {
@@ -247,9 +247,16 @@ export class ReportService {
 
     const totalsResult = await this.dataSource.query(`
       SELECT 
-        (SELECT COUNT(*) FROM regionmaster WHERE status = 1) as regions,
-        (SELECT COUNT(*) FROM schoolmaster WHERE status = 1) as schools,
-        (SELECT COUNT(*) FROM studentmaster WHERE status = 1) as students,
+        (SELECT COUNT(DISTINCT sm.regionId) 
+         FROM student_exam se
+         JOIN studentmaster stu ON se.studentId = stu.userId
+         JOIN teachermaster tm ON stu.createdBy = tm.userId
+         JOIN schoolmaster sm ON tm.schoolId = sm.id) as regions,
+        (SELECT COUNT(DISTINCT tm.schoolId) 
+         FROM student_exam se
+         JOIN studentmaster stu ON se.studentId = stu.userId
+         JOIN teachermaster tm ON stu.createdBy = tm.userId) as schools,
+        (SELECT COUNT(DISTINCT se.studentId) FROM student_exam se) as students,
         (SELECT COUNT(*) FROM student_exam) as assessments
     `);
 
